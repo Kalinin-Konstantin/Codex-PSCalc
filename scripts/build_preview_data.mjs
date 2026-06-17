@@ -73,6 +73,7 @@ const data = {
       fulfillment: 20,
       shipping: 20
     },
+    warehouseOperationRowMarkupPercents: {},
     warehouseReceivingMarkupPercents: {},
     warehouseStorageMarkupPercents: {},
     warehouseFulfillmentExtraOperations: {},

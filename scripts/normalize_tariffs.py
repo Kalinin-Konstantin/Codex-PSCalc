@@ -200,6 +200,11 @@ WAREHOUSE_MATCHES = [
     OperationMatch("storagePalletHeight180", "Хранение EUR паллет (800х1200 вес до 1000 кг), высота до 1,8 м"),
 ]
 
+WAREHOUSE_DESCRIPTION_OVERRIDES = {
+    "Сканирование ЧЗ": "Сканирование маркированной продукции в системе PIM.Seller.",
+    "Сканирование серийного номера": "Сканирование и учет серийного номера в системе PIM.Seller.",
+}
+
 
 def normalize_warehouse() -> dict[str, Any]:
     doc = Document(WAREHOUSE_FILE)
@@ -211,10 +216,11 @@ def normalize_warehouse() -> dict[str, Any]:
             if len(cells) < 3:
                 continue
             name, unit, price = cells[:3]
+            description = cells[3] if len(cells) > 3 else ""
             money = parse_money(price)
             if not name or money is None:
                 continue
-            operations.append({"name": name, "unit": unit, "priceRub": money})
+            operations.append({"name": name, "unit": unit, "priceRub": money, "description": WAREHOUSE_DESCRIPTION_OVERRIDES.get(name, description)})
             for item in WAREHOUSE_MATCHES:
                 if item.pattern in name and item.key not in values:
                     values[item.key] = money

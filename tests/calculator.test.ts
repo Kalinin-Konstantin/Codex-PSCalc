@@ -56,6 +56,7 @@ const settings: CalculatorSettings = {
     fulfillment: 0,
     shipping: 0
   },
+  warehouseOperationRowMarkupPercents: {},
   warehouseReceivingMarkupPercents: {},
   warehouseStorageMarkupPercents: {
     "Хранение EUR паллет (800х1200 вес до 1000 кг), высота до 1,8 м": 0,
@@ -316,6 +317,7 @@ test("warehouse operations are calculated per item from DOCX rates and actual we
   assert.equal(part("pimStorage"), 35.82);
   assert.equal(part("pimFulfillment"), 16.65);
   assert.equal(part("pimLabeling"), 8.73);
+  assert.equal(part("pimShipping"), 13.14);
 });
 
 test("middle mile uses current DOCX tier interpretation by SKU liters", () => {
@@ -389,10 +391,6 @@ test("PIM commercial markups apply before VAT and stay hidden in client mode", (
       fulfillment: 20,
       shipping: 20
     },
-    warehouseStorageMarkupPercents: {
-      ...settings.warehouseStorageMarkupPercents,
-      "Хранение EUR паллет (800х1200 вес до 1000 кг), высота до 1,8 м": 20
-    },
     middleMileFirstLiterMarkupPercent: 30,
     middleMileAdditionalLiterMarkupPercent: 30,
     middleMileOver190LiterMarkupPercent: 0,
@@ -449,10 +447,6 @@ test("warehouse operation groups control included costs and group markups", () =
       fulfillment: 10,
       shipping: 0
     },
-    warehouseStorageMarkupPercents: {
-      ...settings.warehouseStorageMarkupPercents,
-      "Хранение EUR паллет (800х1200 вес до 1000 кг), высота до 1,8 м": 50
-    }
   };
   const fbs = calculateAllSchemes(skus[0], customSettings, tariffs).wildberries.fbs;
   const part = (key: string) => fbs.breakdown.find((item) => item.key === key);
@@ -473,6 +467,7 @@ test("warehouse receiving switches between pallet and box supply types", () => {
   const monoPallet = receivingPart("mono_pallet");
   const mixPallet = receivingPart("mix_pallet");
   const boxes = receivingPart("boxes");
+  const legacyBox = calculateAllSchemes(skus[0], { ...settings, warehouseSupplyType: "box" as CalculatorSettings["warehouseSupplyType"] }, tariffs).wildberries.fbs.breakdown;
 
   assert.equal(monoPallet?.amountRub, 7.41);
   assert.equal(monoPallet?.label, "Приёмка на склад PIM.Seller (монопаллета)");
@@ -481,6 +476,8 @@ test("warehouse receiving switches between pallet and box supply types", () => {
   assert.equal(boxes?.amountRub, 13.14);
   assert.equal(boxes?.label, "Приёмка на склад PIM.Seller (короба)");
   assert.ok(boxes?.calculationNote?.includes("Ручная выгрузка до 5 кг"));
+  assert.equal(legacyBox.find((item) => item.key === "pimReceiving")?.amountRub, boxes?.amountRub);
+  assert.equal(legacyBox.find((item) => item.key === "pimReceiving")?.label, boxes?.label);
 });
 
 test("warehouse storage switches between pallet and liter storage by supply type", () => {
@@ -508,9 +505,25 @@ test("warehouse storage switches between pallet and liter storage by supply type
   assert.equal(boxStorage?.amountRub, 88.08);
 });
 
-test("warehouse storage uses per-operation default markups", () => {
+test("warehouse storage uses per-operation row markups", () => {
   const part = (warehouseSupplyType: CalculatorSettings["warehouseSupplyType"], key: string) =>
-    calculateAllSchemes(skus[0], { ...settings, warehouseSupplyType, warehouseStorageMarkupPercents: {} }, tariffs).wildberries.fbs.breakdown.find((item) => item.key === key);
+    calculateAllSchemes(
+      skus[0],
+      {
+        ...settings,
+        warehouseSupplyType,
+        warehouseOperationMarkupPercents: {
+          ...settings.warehouseOperationMarkupPercents,
+          storage: 0
+        },
+        warehouseOperationRowMarkupPercents: {
+          "Хранение EUR паллет (800х1200 вес до 1000 кг), высота до 1,8 м": 20,
+          "Сортировка по артикулам до 5 кг": 20,
+          "Хранение товара": 30
+        }
+      },
+      tariffs
+    ).wildberries.fbs.breakdown.find((item) => item.key === key);
 
   const monoStorage = part("mono_pallet", "pimStorage");
   const mixSorting = part("mix_pallet", "pimStorageSorting");
@@ -610,7 +623,8 @@ test("warehouse receiving markup can be set per visible operation row", () => {
         ...settings.warehouseOperationMarkupPercents,
         receiving: 0
       },
-      warehouseReceivingMarkupPercents: {
+      warehouseOperationRowMarkupPercents: {
+        ...settings.warehouseOperationRowMarkupPercents,
         "Ручная выгрузка/отгрузка до 5 кг": 50
       }
     },

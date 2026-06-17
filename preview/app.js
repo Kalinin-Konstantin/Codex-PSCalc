@@ -55,7 +55,7 @@ const warehouseSupplyTypeOptions = [
   { value: "mix_pallet", label: "Микспаллета" },
   { value: "boxes", label: "Короба" }
 ];
-settings.warehouseSupplyType = settings.warehouseSupplyType ?? "mono_pallet";
+settings.warehouseSupplyType = normalizeWarehouseSupplyType(settings.warehouseSupplyType);
 settings.warehouseOperationGroups = settings.warehouseOperationGroups ?? {
   receiving: true,
   storage: true,
@@ -68,9 +68,16 @@ settings.warehouseOperationMarkupPercents = settings.warehouseOperationMarkupPer
   fulfillment: settings.warehouseMarkupPercent ?? 20,
   shipping: settings.warehouseMarkupPercent ?? 20
 };
+settings.warehouseOperationRowMarkupPercents = settings.warehouseOperationRowMarkupPercents ?? {};
 settings.warehouseReceivingMarkupPercents = settings.warehouseReceivingMarkupPercents ?? {};
 settings.warehouseStorageMarkupPercents = settings.warehouseStorageMarkupPercents ?? {};
 settings.warehouseFulfillmentExtraOperations = settings.warehouseFulfillmentExtraOperations ?? {};
+
+function normalizeWarehouseSupplyType(value) {
+  if (value === "box" || value === "boxes") return "boxes";
+  if (value === "mix_pallet") return "mix_pallet";
+  return "mono_pallet";
+}
 
 function init() {
   initOriginCityCombobox();
@@ -490,27 +497,11 @@ function openWarehousePriceList() {
   backdrop.addEventListener("click", (event) => {
     if (event.target === backdrop) closeWarehousePriceList();
   });
-  document.querySelectorAll("[data-price-list-markup]").forEach((input) => {
+  document.querySelectorAll("[data-price-list-operation-markup]").forEach((input) => {
     input.addEventListener("input", (event) => {
-      const group = event.target.dataset.priceListMarkup;
-      settings.warehouseOperationMarkupPercents[group] = parseInputNumber(event.target.value);
-      updateWarehousePriceListSaleValues(group);
-      render();
-    });
-  });
-  document.querySelectorAll("[data-price-list-receiving-markup]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      const operationKey = event.target.dataset.priceListReceivingMarkup;
-      settings.warehouseReceivingMarkupPercents[operationKey] = parseInputNumber(event.target.value);
-      updateWarehousePriceListReceivingSaleValue(operationKey);
-      render();
-    });
-  });
-  document.querySelectorAll("[data-price-list-storage-markup]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      const operationKey = event.target.dataset.priceListStorageMarkup;
-      settings.warehouseStorageMarkupPercents[operationKey] = parseInputNumber(event.target.value);
-      updateWarehousePriceListStorageSaleValue(operationKey);
+      const operationKey = event.target.dataset.priceListOperationMarkup;
+      settings.warehouseOperationRowMarkupPercents[operationKey] = parseInputNumber(event.target.value);
+      updateWarehousePriceListOperationSaleValue(operationKey);
       render();
     });
   });
@@ -542,13 +533,8 @@ function warehousePriceListHtml() {
     .map(({ group, operations }) =>
       operations
         .map((operation, index) => {
-          const operationKey = warehouseOperationKey(operation);
-          const percent =
-            group === "receiving"
-              ? settings.warehouseReceivingMarkupPercents[operationKey] ?? settings.warehouseOperationMarkupPercents.receiving ?? 20
-              : group === "storage"
-              ? settings.warehouseStorageMarkupPercents[operationKey] ?? defaultWarehouseStorageMarkupPercent(operationKey)
-              : settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
+          const operationKey = warehouseOperationKey(operation, group);
+          const percent = warehouseOperationMarkupPercent(group, operationKey);
           const costRub = displayWarehousePrice(operation.priceRub);
           const saleRub = money(costRub * (1 + percent / 100));
           const groupCell =
@@ -584,16 +570,14 @@ function warehousePriceListHtml() {
                   }
                 </td>`
               : "";
-          const markupCell =
-            group === "receiving" || group === "storage"
-              ? `<td class="numeric price-list-markup">
-                  <input ${group === "receiving" ? "data-price-list-receiving-markup" : "data-price-list-storage-markup"}="${escapeHtml(operationKey)}" aria-label="${escapeHtml(displayWarehouseOperationName(operation.name))}: процент наценки" min="0" step="1" type="number" value="${percent}">
-                </td>`
-              : index === 0
-              ? `<td class="numeric price-list-markup" rowspan="${operations.length}">
-                  <input data-price-list-markup="${group}" aria-label="${escapeHtml(warehouseGroupDetails[group].label)}: процент наценки" min="0" step="1" type="number" value="${percent}">
-                </td>`
-              : "";
+          const operationDescription = operation.description
+            ? `<span class="help operation-help">
+                <button type="button" class="help-trigger" aria-label="Описание операции ${escapeHtml(displayWarehouseOperationName(operation.name, group))}">?</button>
+                <span class="help-card" role="tooltip">
+                  <span class="help-text">${escapeHtml(operation.description)}</span>
+                </span>
+              </span>`
+            : "";
           return `
             <tr>
               ${groupCell}
@@ -601,16 +585,21 @@ function warehousePriceListHtml() {
                 <span class="operation-pick">
                   ${
                     isFulfillmentExtraOperation(operation.name)
-                      ? `<input data-price-list-fulfillment-extra="${escapeHtml(operationKey)}" aria-label="${escapeHtml(displayWarehouseOperationName(operation.name))}: участвует в расчете" type="checkbox" ${settings.warehouseFulfillmentExtraOperations[operationKey] === true ? "checked" : ""}>`
+                      ? `<input data-price-list-fulfillment-extra="${escapeHtml(operationKey)}" aria-label="${escapeHtml(displayWarehouseOperationName(operation.name, group))}: участвует в расчете" type="checkbox" ${settings.warehouseFulfillmentExtraOperations[operationKey] === true ? "checked" : ""}>`
                       : `<span class="${warehouseOperationSelected(group, operation.name, settings.warehouseSupplyType) ? "operation-check active" : "operation-check"}" aria-hidden="true">✓</span>`
                   }
-                  <span>${escapeHtml(displayWarehouseOperationName(operation.name))}</span>
+                  <span class="operation-name-with-help">
+                    <span>${escapeHtml(displayWarehouseOperationName(operation.name, group))}</span>
+                    ${operationDescription}
+                  </span>
                 </span>
               </td>
               <td>${escapeHtml(operation.unit)}</td>
               <td class="numeric">${formatRub(costRub)}</td>
-              ${markupCell}
-              <td class="numeric" data-price-list-sale="${group}" data-price-list-receiving-sale="${escapeHtml(operationKey)}" data-price-list-storage-sale="${escapeHtml(operationKey)}" data-cost-rub="${costRub}">${formatRub(saleRub)}</td>
+              <td class="numeric price-list-markup">
+                <input data-price-list-operation-markup="${escapeHtml(operationKey)}" aria-label="${escapeHtml(displayWarehouseOperationName(operation.name, group))}: процент наценки" min="0" step="1" type="number" value="${percent}">
+              </td>
+              <td class="numeric" data-price-list-operation-sale="${escapeHtml(operationKey)}" data-price-list-operation-group="${group}" data-cost-rub="${costRub}">${formatRub(saleRub)}</td>
             </tr>
           `;
         })
@@ -646,30 +635,13 @@ function warehousePriceListHtml() {
   `;
 }
 
-function updateWarehousePriceListSaleValues(group) {
-  const percent = settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
-  document.querySelectorAll(`[data-price-list-sale="${group}"]`).forEach((cell) => {
-    const costRub = Number(cell.dataset.costRub) || 0;
-    cell.textContent = formatRub(money(costRub * (1 + percent / 100)));
-  });
-}
-
-function updateWarehousePriceListReceivingSaleValue(operationKey) {
-  const percent = settings.warehouseReceivingMarkupPercents[operationKey] ?? settings.warehouseOperationMarkupPercents.receiving ?? 20;
-  document.querySelectorAll("[data-price-list-receiving-sale]").forEach((cell) => {
-    if (cell.dataset.priceListReceivingSale !== operationKey) return;
-    const costRub = Number(cell.dataset.costRub) || 0;
-    cell.textContent = formatRub(money(costRub * (1 + percent / 100)));
-  });
-}
-
-function updateWarehousePriceListStorageSaleValue(operationKey) {
-  const percent = settings.warehouseStorageMarkupPercents[operationKey] ?? defaultWarehouseStorageMarkupPercent(operationKey);
-  document.querySelectorAll("[data-price-list-storage-sale]").forEach((cell) => {
-    if (cell.dataset.priceListStorageSale !== operationKey) return;
-    const costRub = Number(cell.dataset.costRub) || 0;
-    cell.textContent = formatRub(money(costRub * (1 + percent / 100)));
-  });
+function updateWarehousePriceListOperationSaleValue(operationKey) {
+  const cell = [...document.querySelectorAll("[data-price-list-operation-sale]")].find((item) => item.dataset.priceListOperationSale === operationKey);
+  if (!cell) return;
+  const group = cell.dataset.priceListOperationGroup;
+  const percent = warehouseOperationMarkupPercent(group, operationKey);
+  const costRub = Number(cell.dataset.costRub) || 0;
+  cell.textContent = formatRub(money(costRub * (1 + percent / 100)));
 }
 
 function warehousePriceListGroups() {
@@ -680,10 +652,10 @@ function warehousePriceListGroups() {
       operations: operations
         .filter(
           (operation) => {
-            if (warehouseGroupForOperation(operation.name) !== group || !isWarehouseOperationVisible(operation.name)) return false;
+            if (!warehouseOperationBelongsToGroup(operation.name, group) || !isWarehouseOperationVisible(operation.name)) return false;
             if (group === "fulfillment" && isFulfillmentExtraOperation(operation.name)) {
               if (!warehouseExtraOperationMatchesCurrentSkus(operation.name)) return false;
-              return isFulfillmentExtrasOpen || settings.warehouseFulfillmentExtraOperations[warehouseOperationKey(operation)] === true;
+              return isFulfillmentExtrasOpen || settings.warehouseFulfillmentExtraOperations[warehouseOperationKey(operation, group)] === true;
             }
             return warehouseOperationMatchesCurrentSkus(operation.name, group, settings.warehouseSupplyType);
           }
@@ -717,7 +689,10 @@ function isWarehouseOperationVisible(name) {
   return !normalized.includes("механизированная выгрузка/отгрузка паллеты, негабарит");
 }
 
-function displayWarehouseOperationName(name) {
+function displayWarehouseOperationName(name, group) {
+  if (group === "shipping") {
+    return name.replaceAll("Ручная выгрузка/отгрузка", "Ручная отгрузка").replaceAll("ручная выгрузка/отгрузка", "ручная отгрузка");
+  }
   if (name.toLowerCase() === "хранение товара") return "Хранение товара в литрах";
   return name
     .replaceAll("выгрузка/отгрузка", "выгрузка")
@@ -727,11 +702,23 @@ function displayWarehouseOperationName(name) {
     .replaceAll(", объем > 2-х литров < 5 литров", ", объем > 2 литров");
 }
 
-function defaultWarehouseStorageMarkupPercent(operationKey) {
-  return operationKey.toLowerCase() === "хранение товара" ? 30 : 20;
+function warehouseOperationMarkupPercent(group, operationKey) {
+  return (
+    settings.warehouseOperationRowMarkupPercents[operationKey] ??
+    defaultWarehouseOperationRowMarkupPercent(group, operationKey) ??
+    settings.warehouseMarkupPercent ??
+    20
+  );
 }
 
-function warehouseOperationKey(operation) {
+function defaultWarehouseOperationRowMarkupPercent(group, operationKey) {
+  const groupPercent = settings.warehouseOperationMarkupPercents[group];
+  if (group === "storage" && operationKey.toLowerCase() === "хранение товара" && groupPercent === 20) return 30;
+  return groupPercent ?? 20;
+}
+
+function warehouseOperationKey(operation, group) {
+  if (group === "shipping") return `shipping:${operation.name}`;
   return isFulfillmentExtraOperation(operation.name) ? `${operation.name}::${operation.priceRub}` : operation.name;
 }
 
@@ -758,6 +745,9 @@ function warehouseOperationMatchesCurrentSkus(name, group, supplyType) {
       return skus.some((sku) => warehouseWeightRangeMatches(name, sku.weightKg));
     }
     return normalized.includes("маркировка ручная");
+  }
+  if (group === "shipping") {
+    return normalized.includes("ручная выгрузка/отгрузка") && skus.some((sku) => warehouseWeightRangeMatches(name, sku.weightKg));
   }
 
   const weightRange = warehouseWeightRange(name);
@@ -814,6 +804,13 @@ function warehouseGroupForOperation(name) {
   return "fulfillment";
 }
 
+function warehouseOperationBelongsToGroup(name, group) {
+  const normalized = name.toLowerCase();
+  if (group === "receiving" && normalized.includes("ручная выгрузка/отгрузка")) return true;
+  if (group === "shipping" && normalized.includes("ручная выгрузка/отгрузка")) return true;
+  return warehouseGroupForOperation(name) === group;
+}
+
 function warehouseOperationSelected(group, operationName, supplyType) {
   const normalized = operationName.toLowerCase();
   if (group === "receiving") {
@@ -832,6 +829,7 @@ function warehouseOperationSelected(group, operationName, supplyType) {
     }
     return normalized.includes("комплектация/расформирование заказа") || normalized.includes("маркировка ручная");
   }
+  if (group === "shipping") return normalized.includes("ручная выгрузка/отгрузка");
   return false;
 }
 
@@ -1019,7 +1017,7 @@ function renderAdminMargin(rows) {
       const marketplaces = ["wildberries", "ozon"];
       return marketplaces.flatMap((marketplace, marketplaceIndex) =>
         ["fbs", "dbs"].map((scheme, schemeIndex) => {
-          const margin = summarizePimMargin(result[marketplace][scheme]);
+          const summary = summarizePimMargin(result[marketplace][scheme]);
           return `
             <tr>
               ${
@@ -1028,12 +1026,17 @@ function renderAdminMargin(rows) {
                   : ""
               }
               ${schemeIndex === 0 ? `<td class="admin-group-cell marketplace-cell" rowspan="2">${marketplaceLabel(marketplace)}</td>` : ""}
-              <td>${scheme.toUpperCase()}</td>
-              <td class="admin-value">${formatRub(margin.firstMile)}</td>
-              <td class="admin-value">${formatRub(margin.warehouse)}</td>
-              <td class="admin-value">${formatRub(margin.middleMile)}</td>
-              <td class="admin-value">${formatRub(margin.lastMile)}</td>
-              <td class="admin-value"><strong>${formatRub(margin.total)}</strong></td>
+              <td class="admin-scheme-cell">${scheme.toUpperCase()}</td>
+              <td class="admin-value admin-cost-cell">${formatRub(summary.firstMile.total)}</td>
+              <td class="admin-value admin-margin-cell">${formatRub(summary.firstMile.margin)}</td>
+              <td class="admin-value admin-cost-cell">${formatRub(summary.warehouse.total)}</td>
+              <td class="admin-value admin-margin-cell">${formatRub(summary.warehouse.margin)}</td>
+              <td class="admin-value admin-cost-cell">${formatRub(summary.middleMile.total)}</td>
+              <td class="admin-value admin-margin-cell">${formatRub(summary.middleMile.margin)}</td>
+              <td class="admin-value admin-cost-cell">${formatRub(summary.lastMile.total)}</td>
+              <td class="admin-value admin-margin-cell">${formatRub(summary.lastMile.margin)}</td>
+              <td class="admin-value admin-cost-cell admin-total-cell"><strong>${formatRub(summary.total.total)}</strong></td>
+              <td class="admin-value admin-margin-cell admin-total-cell"><strong>${formatRub(summary.total.margin)}</strong></td>
             </tr>
           `;
         })
@@ -1043,19 +1046,29 @@ function renderAdminMargin(rows) {
 }
 
 function summarizePimMargin(result) {
-  const margin = { firstMile: 0, warehouse: 0, middleMile: 0, lastMile: 0, total: 0 };
+  const summary = {
+    firstMile: { total: 0, margin: 0 },
+    warehouse: { total: 0, margin: 0 },
+    middleMile: { total: 0, margin: 0 },
+    lastMile: { total: 0, margin: 0 },
+    total: { total: 0, margin: 0 }
+  };
   for (const item of result.breakdown) {
     if (!item.pimProfitCenter) continue;
+    const costWithoutVat = item.pimCostWithoutVatRub ?? item.amountWithoutVatRub;
+    const cost = settings.vatDisplayMode === "with_vat" ? costWithoutVat * (1 + VAT_RATE) : costWithoutVat;
     const profit = settings.vatDisplayMode === "with_vat" ? item.pimProfitWithVatRub ?? 0 : item.pimProfitWithoutVatRub ?? 0;
-    margin[item.pimProfitCenter] += profit;
-    margin.total += profit;
+    summary[item.pimProfitCenter].total += cost + profit;
+    summary[item.pimProfitCenter].margin += profit;
+    summary.total.total += cost + profit;
+    summary.total.margin += profit;
   }
   return {
-    firstMile: money(margin.firstMile),
-    warehouse: money(margin.warehouse),
-    middleMile: money(margin.middleMile),
-    lastMile: money(margin.lastMile),
-    total: money(margin.total)
+    firstMile: { total: money(summary.firstMile.total), margin: money(summary.firstMile.margin) },
+    warehouse: { total: money(summary.warehouse.total), margin: money(summary.warehouse.margin) },
+    middleMile: { total: money(summary.middleMile.total), margin: money(summary.middleMile.margin) },
+    lastMile: { total: money(summary.lastMile.total), margin: money(summary.lastMile.margin) },
+    total: { total: money(summary.total.total), margin: money(summary.total.margin) }
   };
 }
 
@@ -1202,7 +1215,7 @@ function pimProfitCenter(key) {
   if (key === "middleMile") return "middleMile";
   if (key === "lastMile") return "lastMile";
   if (key.startsWith("pimFulfillmentExtra:")) return "warehouse";
-  if (key === "pimReceiving" || key === "pimStorageSorting" || key === "pimStorage" || key === "pimFulfillment" || key === "pimLabeling") return "warehouse";
+  if (key === "pimReceiving" || key === "pimStorageSorting" || key === "pimStorage" || key === "pimFulfillment" || key === "pimLabeling" || key === "pimShipping") return "warehouse";
   return null;
 }
 
@@ -1249,11 +1262,13 @@ function pimMarkup(item, profitCenter) {
 function warehouseMarkupPercent(item) {
   const group = item.pimWarehouseGroup ?? warehouseGroupForBreakdownKey(item.key);
   if (!group) return settings.warehouseMarkupPercent;
-  if (group === "receiving" && item.pimWarehouseOperationKey) {
-    return settings.warehouseReceivingMarkupPercents[item.pimWarehouseOperationKey] ?? settings.warehouseOperationMarkupPercents.receiving ?? 20;
-  }
-  if (group === "storage" && item.pimWarehouseOperationKey) {
-    return settings.warehouseStorageMarkupPercents[item.pimWarehouseOperationKey] ?? defaultWarehouseStorageMarkupPercent(item.pimWarehouseOperationKey);
+  if (item.pimWarehouseOperationKey) {
+    return (
+      settings.warehouseOperationRowMarkupPercents[item.pimWarehouseOperationKey] ??
+      defaultWarehouseOperationRowMarkupPercent(group, item.pimWarehouseOperationKey) ??
+      settings.warehouseMarkupPercent ??
+      20
+    );
   }
   return settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
 }
@@ -1433,6 +1448,8 @@ function pimWarehouseCosts(sku) {
   const storage = storageCost(sku);
   const storageSorting = storageSortingCost(sku);
   const fulfillmentExtras = fulfillmentExtraCosts(sku);
+  const outbound = outboundCost(sku.weightKg, window.__PIM_DATA__.warehouse);
+  const shipping = shippingCost(sku);
   const operations = [
     {
       key: "pimReceiving",
@@ -1471,11 +1488,12 @@ function pimWarehouseCosts(sku) {
     {
       key: "pimFulfillment",
       label: "Комплектация PIM.Seller",
-      amountRub: outboundCost(sku.weightKg, selected),
+      amountRub: outbound.amountRub,
       source: "pim",
       vatMode: "without_vat",
       pimWarehouseGroup: "fulfillment",
-      calculationNote: `Комплектация по фактическому весу ${formatNumber(sku.weightKg)} кг.`
+      pimWarehouseOperationKey: outbound.operationKey,
+      calculationNote: `${outbound.operationName}: фактический вес ${formatNumber(sku.weightKg)} кг.`
     },
     {
       key: "pimLabeling",
@@ -1484,9 +1502,20 @@ function pimWarehouseCosts(sku) {
       source: "pim",
       vatMode: "without_vat",
       pimWarehouseGroup: "fulfillment",
+      pimWarehouseOperationKey: window.__PIM_DATA__.warehouse.selectedMapping?.labeling ?? "Маркировка ручная",
       calculationNote: `Фиксированный тариф маркировки: ${formatNumber(selected.labeling ?? 0)} ₽/SKU.`
     },
-    ...fulfillmentExtras
+    ...fulfillmentExtras,
+    {
+      key: "pimShipping",
+      label: "Отгрузка со склада PIM.Seller",
+      amountRub: shipping.amountRub,
+      source: "pim",
+      vatMode: "without_vat",
+      pimWarehouseGroup: "shipping",
+      pimWarehouseOperationKey: shipping.operationKey,
+      calculationNote: shipping.note
+    }
   ];
   return operations.filter((item) => settings.warehouseOperationGroups[item.pimWarehouseGroup] !== false);
 }
@@ -1496,6 +1525,7 @@ function warehouseGroupForBreakdownKey(key) {
   if (key === "pimStorage" || key === "pimStorageSorting") return "storage";
   if (key.startsWith("pimFulfillmentExtra:")) return "fulfillment";
   if (key === "pimFulfillment" || key === "pimLabeling") return "fulfillment";
+  if (key === "pimShipping") return "shipping";
   return null;
 }
 
@@ -1595,6 +1625,17 @@ function receivingCost(sku) {
   };
 }
 
+function shippingCost(sku) {
+  const manual = manualReceivingCost(sku.weightKg);
+  return {
+    amountRub: manual.priceRub,
+    operationKey: manual.name ? `shipping:${manual.name}` : "",
+    note: manual.name
+      ? `${displayWarehouseOperationName(manual.name, "shipping")}: фактический вес ${formatNumber(sku.weightKg)} кг.`
+      : `Ручная отгрузка: тариф по весу ${formatNumber(sku.weightKg)} кг не найден.`
+  };
+}
+
 function manualReceivingCost(weightKg) {
   const rows = (window.__PIM_DATA__.warehouse.operations ?? []).filter((operation) => operation.name.toLowerCase().includes("ручная выгрузка/отгрузка"));
   const row = rows.find((operation) => manualWeightRangeMatches(operation.name, weightKg));
@@ -1616,11 +1657,15 @@ function manualWeightRangeMatches(name, weightKg) {
   return false;
 }
 
-function outboundCost(weightKg, selected) {
-  if (weightKg <= 5) return selected.outboundUpTo5Kg ?? 0;
-  if (weightKg <= 10) return selected.outbound5To10Kg ?? 0;
-  if (weightKg <= 25) return selected.outbound10To25Kg ?? 0;
-  return selected.outbound25To50Kg ?? 0;
+function outboundCost(weightKg, warehouse) {
+  const key = weightKg <= 5 ? "outboundUpTo5Kg" : weightKg <= 10 ? "outbound5To10Kg" : weightKg <= 25 ? "outbound10To25Kg" : "outbound25To50Kg";
+  const fallbackKey = key === "outbound5To10Kg" ? "outboundUpTo5Kg" : key === "outbound10To25Kg" ? "outbound5To10Kg" : key === "outbound25To50Kg" ? "outbound10To25Kg" : key;
+  const operationName = warehouse.selectedMapping?.[key] ?? warehouse.selectedMapping?.[fallbackKey] ?? "Комплектация/Расформирование заказа, до 5 кг";
+  return {
+    amountRub: warehouse.selected[key] ?? warehouse.selected[fallbackKey] ?? 0,
+    operationKey: operationName,
+    operationName
+  };
 }
 
 function wildberriesCosts(scheme, sku, warnings) {

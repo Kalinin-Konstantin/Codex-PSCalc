@@ -327,16 +327,43 @@
           </div>
           <div class="admin-table-wrap">
             <table class="admin-table">
+              <colgroup>
+                <col class="admin-col-sku">
+                <col class="admin-col-marketplace">
+                <col class="admin-col-scheme">
+                <col class="admin-col-cost">
+                <col class="admin-col-margin">
+                <col class="admin-col-cost">
+                <col class="admin-col-margin">
+                <col class="admin-col-cost">
+                <col class="admin-col-margin">
+                <col class="admin-col-cost">
+                <col class="admin-col-margin">
+                <col class="admin-col-cost">
+                <col class="admin-col-margin">
+              </colgroup>
               <thead>
                 <tr>
-                  <th>SKU</th>
-                  <th>Маркетплейс</th>
-                  <th>Схема</th>
-                  <th>Первая</th>
-                  <th>Склад</th>
-                  <th>Средняя</th>
-                  <th>Последняя</th>
-                  <th>Итого</th>
+                  <th class="admin-dimension-head" rowspan="2">SKU</th>
+                  <th class="admin-dimension-head" rowspan="2">Маркетплейс</th>
+                  <th class="admin-dimension-head admin-scheme-head" rowspan="2">Схема</th>
+                  <th class="admin-profit-group" colspan="2">Первая миля</th>
+                  <th class="admin-profit-group" colspan="2">Складские операции</th>
+                  <th class="admin-profit-group" colspan="2">Средняя миля</th>
+                  <th class="admin-profit-group" colspan="2">Последняя миля</th>
+                  <th class="admin-profit-group admin-profit-total" colspan="2">Итого</th>
+                </tr>
+                <tr>
+                  <th class="admin-cost-cell"><span class="admin-subhead">Стоимость <small>итого</small></span></th>
+                  <th class="admin-margin-cell">в т.ч. Маржа</th>
+                  <th class="admin-cost-cell"><span class="admin-subhead">Стоимость <small>итого</small></span></th>
+                  <th class="admin-margin-cell">в т.ч. Маржа</th>
+                  <th class="admin-cost-cell"><span class="admin-subhead">Стоимость <small>итого</small></span></th>
+                  <th class="admin-margin-cell">в т.ч. Маржа</th>
+                  <th class="admin-cost-cell"><span class="admin-subhead">Стоимость <small>итого</small></span></th>
+                  <th class="admin-margin-cell">в т.ч. Маржа</th>
+                  <th class="admin-cost-cell admin-total-cell"><span class="admin-subhead">Стоимость <small>итого</small></span></th>
+                  <th class="admin-margin-cell admin-total-cell">в т.ч. Маржа</th>
                 </tr>
               </thead>
               <tbody id="admin-margin-body"></tbody>

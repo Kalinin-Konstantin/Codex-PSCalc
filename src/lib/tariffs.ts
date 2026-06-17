@@ -74,6 +74,7 @@ export const defaultSettings: CalculatorSettings = {
     fulfillment: 20,
     shipping: 20
   },
+  warehouseOperationRowMarkupPercents: {},
   warehouseReceivingMarkupPercents: {},
   warehouseStorageMarkupPercents: {},
   warehouseFulfillmentExtraOperations: {},

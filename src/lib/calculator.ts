@@ -17,6 +17,7 @@ import type {
   VatDisplayMode,
   WbCommissionEntry,
   WarehouseOperationGroup,
+  WarehouseSupplyType,
   WarehouseTariffs
 } from "./types.ts";
 
@@ -66,18 +67,30 @@ export function classifySkuDimensions(sku: Pick<SkuInput, "lengthCm" | "widthCm"
 }
 
 export function calculateAllSchemes(sku: SkuInput, settings: CalculatorSettings, tariffs: TariffData): CalculationResult {
+  const normalizedSettings = normalizeCalculatorSettings(settings);
   return {
     wildberries: {
-      fbo: calculateMarketplaceScheme("wildberries", "fbo", sku, settings, tariffs),
-      fbs: calculateMarketplaceScheme("wildberries", "fbs", sku, settings, tariffs),
-      dbs: calculateMarketplaceScheme("wildberries", "dbs", sku, settings, tariffs)
+      fbo: calculateMarketplaceScheme("wildberries", "fbo", sku, normalizedSettings, tariffs),
+      fbs: calculateMarketplaceScheme("wildberries", "fbs", sku, normalizedSettings, tariffs),
+      dbs: calculateMarketplaceScheme("wildberries", "dbs", sku, normalizedSettings, tariffs)
     },
     ozon: {
-      fbo: calculateMarketplaceScheme("ozon", "fbo", sku, settings, tariffs),
-      fbs: calculateMarketplaceScheme("ozon", "fbs", sku, settings, tariffs),
-      dbs: calculateMarketplaceScheme("ozon", "dbs", sku, settings, tariffs)
+      fbo: calculateMarketplaceScheme("ozon", "fbo", sku, normalizedSettings, tariffs),
+      fbs: calculateMarketplaceScheme("ozon", "fbs", sku, normalizedSettings, tariffs),
+      dbs: calculateMarketplaceScheme("ozon", "dbs", sku, normalizedSettings, tariffs)
     }
   };
+}
+
+function normalizeCalculatorSettings(settings: CalculatorSettings): CalculatorSettings {
+  const warehouseSupplyType = normalizeWarehouseSupplyType((settings as { warehouseSupplyType?: unknown }).warehouseSupplyType);
+  return warehouseSupplyType === settings.warehouseSupplyType ? settings : { ...settings, warehouseSupplyType };
+}
+
+function normalizeWarehouseSupplyType(value: unknown): WarehouseSupplyType {
+  if (value === "box" || value === "boxes") return "boxes";
+  if (value === "mix_pallet") return "mix_pallet";
+  return "mono_pallet";
 }
 
 export function flattenResults(result: CalculationResult): SchemeResult[] {
@@ -255,7 +268,7 @@ function pimProfitCenter(key: string): PimProfitCenter | null {
   if (key === "middleMile") return "middleMile";
   if (key === "lastMile") return "lastMile";
   if (key.startsWith("pimFulfillmentExtra:")) return "warehouse";
-  if (key === "pimReceiving" || key === "pimStorageSorting" || key === "pimStorage" || key === "pimFulfillment" || key === "pimLabeling") return "warehouse";
+  if (key === "pimReceiving" || key === "pimStorageSorting" || key === "pimStorage" || key === "pimFulfillment" || key === "pimLabeling" || key === "pimShipping") return "warehouse";
   return null;
 }
 
@@ -308,17 +321,21 @@ function pimMarkup(
 function warehouseMarkupPercent(item: DraftBreakdownItem, settings: CalculatorSettings): number {
   const group = item.pimWarehouseGroup ?? warehouseGroupForBreakdownKey(item.key);
   if (!group) return settings.warehouseMarkupPercent;
-  if (group === "receiving" && item.pimWarehouseOperationKey) {
-    return settings.warehouseReceivingMarkupPercents[item.pimWarehouseOperationKey] ?? settings.warehouseOperationMarkupPercents.receiving ?? 20;
-  }
-  if (group === "storage" && item.pimWarehouseOperationKey) {
-    return settings.warehouseStorageMarkupPercents[item.pimWarehouseOperationKey] ?? defaultWarehouseStorageMarkupPercent(item.pimWarehouseOperationKey);
+  if (item.pimWarehouseOperationKey) {
+    return (
+      settings.warehouseOperationRowMarkupPercents[item.pimWarehouseOperationKey] ??
+      defaultWarehouseOperationRowMarkupPercent(settings, group, item.pimWarehouseOperationKey) ??
+      settings.warehouseMarkupPercent ??
+      20
+    );
   }
   return settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
 }
 
-function defaultWarehouseStorageMarkupPercent(operationKey: string): number {
-  return operationKey.toLowerCase() === "хранение товара" ? 30 : 20;
+function defaultWarehouseOperationRowMarkupPercent(settings: CalculatorSettings, group: WarehouseOperationGroup, operationKey: string): number {
+  const groupPercent = settings.warehouseOperationMarkupPercents[group];
+  if (group === "storage" && operationKey.toLowerCase() === "хранение товара" && groupPercent === 20) return 30;
+  return groupPercent ?? 20;
 }
 
 function amountWithoutVat(amountRub: number, vatMode: CostVatMode): number {
@@ -494,7 +511,8 @@ function pimWarehouseCosts(
   const receiving = receivingCost(sku, warehouse, settings);
   const storage = storageCost(sku, storageDays, warehouse, settings);
   const storageSorting = storageSortingCost(sku, warehouse, settings);
-  const outbound = outboundCost(sku.weightKg, selected);
+  const outbound = outboundCost(sku.weightKg, warehouse);
+  const shipping = shippingCost(sku, warehouse);
   const fulfillmentExtras = fulfillmentExtraCosts(sku, warehouse, settings);
   const operations: DraftBreakdownItem[] = [
     {
@@ -534,11 +552,12 @@ function pimWarehouseCosts(
     {
       key: "pimFulfillment",
       label: "Комплектация PIM.Seller",
-      amountRub: outbound,
+      amountRub: outbound.amountRub,
       source: "pim",
       vatMode: "without_vat",
       pimWarehouseGroup: "fulfillment",
-      calculationNote: `Комплектация по фактическому весу ${formatDecimal(sku.weightKg)} кг.`
+      pimWarehouseOperationKey: outbound.operationKey,
+      calculationNote: `${outbound.operationName}: фактический вес ${formatDecimal(sku.weightKg)} кг.`
     },
     {
       key: "pimLabeling",
@@ -547,9 +566,20 @@ function pimWarehouseCosts(
       source: "pim",
       vatMode: "without_vat",
       pimWarehouseGroup: "fulfillment",
+      pimWarehouseOperationKey: warehouse.selectedMapping?.labeling ?? "Маркировка ручная",
       calculationNote: `Фиксированный тариф маркировки: ${formatDecimal(selected.labeling ?? 0)} ₽/SKU.`
     },
-    ...fulfillmentExtras
+    ...fulfillmentExtras,
+    {
+      key: "pimShipping",
+      label: "Отгрузка со склада PIM.Seller",
+      amountRub: shipping.amountRub,
+      source: "pim",
+      vatMode: "without_vat",
+      pimWarehouseGroup: "shipping",
+      pimWarehouseOperationKey: shipping.operationKey,
+      calculationNote: shipping.note
+    }
   ];
   return operations.filter((item) => {
     const group = item.pimWarehouseGroup;
@@ -626,6 +656,7 @@ function warehouseGroupForBreakdownKey(key: string): WarehouseOperationGroup | n
   if (key === "pimStorage" || key === "pimStorageSorting") return "storage";
   if (key.startsWith("pimFulfillmentExtra:")) return "fulfillment";
   if (key === "pimFulfillment" || key === "pimLabeling") return "fulfillment";
+  if (key === "pimShipping") return "shipping";
   return null;
 }
 
@@ -710,6 +741,25 @@ function receivingOperationDisplayName(name: string): string {
   return name.replaceAll("выгрузка/отгрузка", "выгрузка").replaceAll("Выгрузка/отгрузка", "Выгрузка");
 }
 
+function shippingCost(sku: SkuInput, warehouse: WarehouseTariffs): { amountRub: number; note: string; operationKey: string } {
+  const manual = manualReceivingCost(sku.weightKg, warehouse.operations ?? []);
+  return {
+    amountRub: manual.priceRub,
+    note: manual.name
+      ? `${shippingOperationDisplayName(manual.name)}: фактический вес ${formatDecimal(sku.weightKg)} кг.`
+      : `Ручная отгрузка: тариф по весу ${formatDecimal(sku.weightKg)} кг не найден.`,
+    operationKey: manual.name ? shippingOperationKey(manual.name) : ""
+  };
+}
+
+function shippingOperationKey(name: string): string {
+  return `shipping:${name}`;
+}
+
+function shippingOperationDisplayName(name: string): string {
+  return name.replaceAll("Ручная выгрузка/отгрузка", "Ручная отгрузка").replaceAll("ручная выгрузка/отгрузка", "ручная отгрузка");
+}
+
 function fulfillmentOperationDisplayName(name: string): string {
   return name
     .replaceAll("/Расформирование заказа", "")
@@ -738,11 +788,15 @@ function manualWeightRangeMatches(name: string, weightKg: number): boolean {
   return false;
 }
 
-function outboundCost(weightKg: number, selected: Record<string, number>): number {
-  if (weightKg <= 5) return selected.outboundUpTo5Kg ?? 0;
-  if (weightKg <= 10) return selected.outbound5To10Kg ?? selected.outboundUpTo5Kg ?? 0;
-  if (weightKg <= 25) return selected.outbound10To25Kg ?? selected.outbound5To10Kg ?? 0;
-  return selected.outbound25To50Kg ?? selected.outbound10To25Kg ?? 0;
+function outboundCost(weightKg: number, warehouse: WarehouseTariffs): { amountRub: number; operationKey: string; operationName: string } {
+  const key = weightKg <= 5 ? "outboundUpTo5Kg" : weightKg <= 10 ? "outbound5To10Kg" : weightKg <= 25 ? "outbound10To25Kg" : "outbound25To50Kg";
+  const fallbackKey = key === "outbound5To10Kg" ? "outboundUpTo5Kg" : key === "outbound10To25Kg" ? "outbound5To10Kg" : key === "outbound25To50Kg" ? "outbound10To25Kg" : key;
+  const operationName = warehouse.selectedMapping?.[key] ?? warehouse.selectedMapping?.[fallbackKey] ?? "Комплектация/Расформирование заказа, до 5 кг";
+  return {
+    amountRub: warehouse.selected[key] ?? warehouse.selected[fallbackKey] ?? 0,
+    operationKey: operationName,
+    operationName
+  };
 }
 
 function wildberriesMarketplaceCosts(

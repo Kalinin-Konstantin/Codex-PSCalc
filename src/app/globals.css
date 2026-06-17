@@ -710,26 +710,103 @@ label span {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #ffffff;
 }
 
 .admin-table {
-  min-width: 760px;
+  min-width: 1210px;
   font-size: 12px;
+  table-layout: fixed;
+}
+
+.admin-col-sku {
+  width: 105px;
+}
+
+.admin-col-marketplace {
+  width: 120px;
+}
+
+.admin-col-scheme {
+  width: 75px;
+}
+
+.admin-col-cost {
+  width: 92px;
+}
+
+.admin-col-margin {
+  width: 90px;
 }
 
 .admin-table th,
 .admin-table td {
-  padding: 8px;
+  padding: 9px 10px;
   white-space: nowrap;
 }
 
-.admin-table td:nth-child(n + 4),
-.admin-table th:nth-child(n + 4) {
+.admin-table th {
+  font-weight: 800;
+}
+
+.admin-table thead th {
+  border-bottom-color: #cfdbe3;
+  background: #edf4f2;
+  color: #344251;
+  text-align: center;
+  text-transform: none;
+  vertical-align: middle;
+}
+
+.admin-table thead tr:first-child th {
+  top: 0;
+  z-index: 5;
+  height: 45px;
+  border-bottom: 0;
+  box-shadow: inset 0 -1px 0 rgba(15, 118, 110, 0.16);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.admin-table thead tr:nth-child(2) th {
+  top: 45px;
+  z-index: 4;
+  height: 46px;
+  background: #f5f9f8;
+  color: #516171;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.12;
+  text-align: center;
+}
+
+.admin-table th[rowspan] {
+  vertical-align: middle;
+}
+
+.admin-subhead {
+  align-items: center;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  font: inherit;
+  line-height: 1.08;
+}
+
+.admin-subhead small {
+  font: inherit;
+  line-height: 1.08;
+}
+
+.admin-table .admin-value,
+.admin-table .admin-cost-cell,
+.admin-table .admin-margin-cell {
   text-align: right;
 }
 
-.admin-table th:nth-child(-n + 3) {
-  text-align: left;
+.admin-table thead tr:nth-child(2) .admin-cost-cell,
+.admin-table thead tr:nth-child(2) .admin-margin-cell {
+  text-align: center;
 }
 
 .admin-table td:not(.admin-value) {
@@ -739,6 +816,50 @@ label span {
 .admin-table .admin-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.admin-table .admin-profit-group {
+  border-left: 2px solid rgba(15, 118, 110, 0.22);
+  text-align: center;
+}
+
+.admin-table .admin-dimension-head,
+.admin-table .sku-cell,
+.admin-table .marketplace-cell,
+.admin-table .admin-scheme-cell {
+  border-right: 1px solid rgba(188, 202, 214, 0.78);
+}
+
+.admin-table .admin-scheme-head,
+.admin-table .admin-scheme-cell {
+  border-right: 2px solid rgba(15, 118, 110, 0.18);
+}
+
+.admin-table .admin-dimension-head {
+  text-align: center;
+}
+
+.admin-table .admin-cost-cell {
+  border-left: 2px solid rgba(15, 118, 110, 0.18);
+}
+
+.admin-table .admin-margin-cell {
+  border-left: 1px solid rgba(188, 202, 214, 0.72);
+}
+
+.admin-table .admin-profit-total,
+.admin-table .admin-total-cell {
+  background: #eef8f5;
+}
+
+.admin-table tbody tr:nth-child(4n + 1) td,
+.admin-table tbody tr:nth-child(4n + 1) th {
+  border-top: 2px solid rgba(15, 118, 110, 0.14);
+}
+
+.admin-table tbody tr:hover td,
+.admin-table tbody tr:hover th {
+  background: #f8fbfb;
 }
 
 .admin-group-cell {
@@ -930,6 +1051,25 @@ label span {
 
 .operation-pick > span:last-child {
   min-width: 0;
+}
+
+.operation-name-with-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.operation-name-with-help > span:first-child {
+  min-width: 0;
+}
+
+.operation-help .help-card {
+  top: calc(100% + 8px);
+  right: auto;
+  bottom: auto;
+  left: 0;
+  width: min(360px, calc(100vw - 48px));
 }
 
 .operation-pick input[type="checkbox"] {

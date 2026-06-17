@@ -52,6 +52,7 @@ export type CalculatorSettings = {
   warehouseSupplyType: WarehouseSupplyType;
   warehouseOperationGroups: Record<WarehouseOperationGroup, boolean>;
   warehouseOperationMarkupPercents: Record<WarehouseOperationGroup, number>;
+  warehouseOperationRowMarkupPercents: Record<string, number>;
   warehouseReceivingMarkupPercents: Record<string, number>;
   warehouseStorageMarkupPercents: Record<string, number>;
   warehouseFulfillmentExtraOperations: Record<string, boolean>;
@@ -130,6 +131,7 @@ export type WarehouseTariffs = {
     name: string;
     unit: string;
     priceRub: number;
+    description?: string;
   }>;
 };
 

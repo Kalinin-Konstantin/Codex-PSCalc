@@ -703,17 +703,10 @@ function AdminPanel({
         [group]: value
       }
     });
-  const updateReceivingMarkup = (operationKey: string, value: number) =>
+  const updateOperationRowMarkup = (operationKey: string, value: number) =>
     onSettingsChange({
-      warehouseReceivingMarkupPercents: {
-        ...settings.warehouseReceivingMarkupPercents,
-        [operationKey]: value
-      }
-    });
-  const updateStorageMarkup = (operationKey: string, value: number) =>
-    onSettingsChange({
-      warehouseStorageMarkupPercents: {
-        ...settings.warehouseStorageMarkupPercents,
+      warehouseOperationRowMarkupPercents: {
+        ...settings.warehouseOperationRowMarkupPercents,
         [operationKey]: value
       }
     });
@@ -818,9 +811,7 @@ function AdminPanel({
           onClose={() => setIsWarehousePriceListOpen(false)}
           onFulfillmentExtrasToggle={() => setIsFulfillmentExtrasOpen((value) => !value)}
           onFulfillmentExtraChange={updateFulfillmentExtra}
-          onMarkupChange={updateWarehouseMarkup}
-          onReceivingMarkupChange={updateReceivingMarkup}
-          onStorageMarkupChange={updateStorageMarkup}
+          onOperationRowMarkupChange={updateOperationRowMarkup}
           onSupplyTypeChange={(warehouseSupplyType) => onSettingsChange({ warehouseSupplyType })}
         />
       ) : null}
@@ -832,16 +823,57 @@ function AdminPanel({
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
+            <colgroup>
+              <col className="admin-col-sku" />
+              <col className="admin-col-marketplace" />
+              <col className="admin-col-scheme" />
+              {Array.from({ length: 5 }).flatMap((_, index) => [
+                <col key={`cost-${index}`} className="admin-col-cost" />,
+                <col key={`margin-${index}`} className="admin-col-margin" />
+              ])}
+            </colgroup>
             <thead>
               <tr>
-                <th>SKU</th>
-                <th>Маркетплейс</th>
-                <th>Схема</th>
-                <th>Первая</th>
-                <th>Склад</th>
-                <th>Средняя</th>
-                <th>Последняя</th>
-                <th>Итого</th>
+                <th className="admin-dimension-head" rowSpan={2}>SKU</th>
+                <th className="admin-dimension-head" rowSpan={2}>Маркетплейс</th>
+                <th className="admin-dimension-head admin-scheme-head" rowSpan={2}>Схема</th>
+                <th className="admin-profit-group" colSpan={2}>Первая миля</th>
+                <th className="admin-profit-group" colSpan={2}>Складские операции</th>
+                <th className="admin-profit-group" colSpan={2}>Средняя миля</th>
+                <th className="admin-profit-group" colSpan={2}>Последняя миля</th>
+                <th className="admin-profit-group admin-profit-total" colSpan={2}>Итого</th>
+              </tr>
+              <tr>
+                <th className="admin-cost-cell">
+                  <span className="admin-subhead">
+                    Стоимость <small>итого</small>
+                  </span>
+                </th>
+                <th className="admin-margin-cell">в т.ч. Маржа</th>
+                <th className="admin-cost-cell">
+                  <span className="admin-subhead">
+                    Стоимость <small>итого</small>
+                  </span>
+                </th>
+                <th className="admin-margin-cell">в т.ч. Маржа</th>
+                <th className="admin-cost-cell">
+                  <span className="admin-subhead">
+                    Стоимость <small>итого</small>
+                  </span>
+                </th>
+                <th className="admin-margin-cell">в т.ч. Маржа</th>
+                <th className="admin-cost-cell">
+                  <span className="admin-subhead">
+                    Стоимость <small>итого</small>
+                  </span>
+                </th>
+                <th className="admin-margin-cell">в т.ч. Маржа</th>
+                <th className="admin-cost-cell admin-total-cell">
+                  <span className="admin-subhead">
+                    Стоимость <small>итого</small>
+                  </span>
+                </th>
+                <th className="admin-margin-cell admin-total-cell">в т.ч. Маржа</th>
               </tr>
             </thead>
             <tbody>
@@ -859,14 +891,17 @@ function AdminPanel({
                           {labelForMarketplace(marketplaceGroup.marketplace)}
                         </td>
                       ) : null}
-                      <td>{labelForScheme(row.scheme)}</td>
-                      <td className="admin-value">{formatRub(row.margin.firstMile)}</td>
-                      <td className="admin-value">{formatRub(row.margin.warehouse)}</td>
-                      <td className="admin-value">{formatRub(row.margin.middleMile)}</td>
-                      <td className="admin-value">{formatRub(row.margin.lastMile)}</td>
-                      <td className="admin-value">
-                        <strong>{formatRub(row.margin.total)}</strong>
-                      </td>
+                      <td className="admin-scheme-cell">{labelForScheme(row.scheme)}</td>
+                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.firstMile.total)}</td>
+                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.firstMile.margin)}</td>
+                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.warehouse.total)}</td>
+                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.warehouse.margin)}</td>
+                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.middleMile.total)}</td>
+                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.middleMile.margin)}</td>
+                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.lastMile.total)}</td>
+                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.lastMile.margin)}</td>
+                      <td className="admin-value admin-cost-cell admin-total-cell"><strong>{formatRub(row.summary.total.total)}</strong></td>
+                      <td className="admin-value admin-margin-cell admin-total-cell"><strong>{formatRub(row.summary.total.margin)}</strong></td>
                     </tr>
                   ))
                 )
@@ -885,7 +920,7 @@ function marginGroups(calculations: Array<{ sku: SkuInput; result: CalculationRe
       marketplace,
       rows: (["fbs", "dbs"] as const).map((scheme) => ({
         scheme,
-        margin: summarizePimMargin(result[marketplace][scheme], vatDisplayMode)
+        summary: summarizePimMargin(result[marketplace][scheme], vatDisplayMode)
       }))
     }));
     return {
@@ -897,28 +932,34 @@ function marginGroups(calculations: Array<{ sku: SkuInput; result: CalculationRe
   });
 }
 
-function summarizePimMargin(result: SchemeResult, vatDisplayMode: CalculatorSettings["vatDisplayMode"]): Record<PimProfitCenter | "total", number> {
-  const margin: Record<PimProfitCenter | "total", number> = {
-    firstMile: 0,
-    warehouse: 0,
-    middleMile: 0,
-    lastMile: 0,
-    total: 0
+type MarginSummary = Record<PimProfitCenter | "total", { total: number; margin: number }>;
+
+function summarizePimMargin(result: SchemeResult, vatDisplayMode: CalculatorSettings["vatDisplayMode"]): MarginSummary {
+  const summary: MarginSummary = {
+    firstMile: { total: 0, margin: 0 },
+    warehouse: { total: 0, margin: 0 },
+    middleMile: { total: 0, margin: 0 },
+    lastMile: { total: 0, margin: 0 },
+    total: { total: 0, margin: 0 }
   };
 
   for (const item of result.breakdown) {
     if (!item.pimProfitCenter) continue;
+    const costWithoutVat = item.pimCostWithoutVatRub ?? item.amountWithoutVatRub;
+    const cost = vatDisplayMode === "with_vat" ? costWithoutVat * 1.22 : costWithoutVat;
     const profit = vatDisplayMode === "with_vat" ? item.pimProfitWithVatRub ?? 0 : item.pimProfitWithoutVatRub ?? 0;
-    margin[item.pimProfitCenter] += profit;
-    margin.total += profit;
+    summary[item.pimProfitCenter].total += cost + profit;
+    summary[item.pimProfitCenter].margin += profit;
+    summary.total.total += cost + profit;
+    summary.total.margin += profit;
   }
 
   return {
-    firstMile: roundRub(margin.firstMile),
-    warehouse: roundRub(margin.warehouse),
-    middleMile: roundRub(margin.middleMile),
-    lastMile: roundRub(margin.lastMile),
-    total: roundRub(margin.total)
+    firstMile: { total: roundRub(summary.firstMile.total), margin: roundRub(summary.firstMile.margin) },
+    warehouse: { total: roundRub(summary.warehouse.total), margin: roundRub(summary.warehouse.margin) },
+    middleMile: { total: roundRub(summary.middleMile.total), margin: roundRub(summary.middleMile.margin) },
+    lastMile: { total: roundRub(summary.lastMile.total), margin: roundRub(summary.lastMile.margin) },
+    total: { total: roundRub(summary.total.total), margin: roundRub(summary.total.margin) }
   };
 }
 
@@ -931,9 +972,7 @@ function WarehousePriceListModal({
   onClose,
   onFulfillmentExtraChange,
   onFulfillmentExtrasToggle,
-  onMarkupChange,
-  onReceivingMarkupChange,
-  onStorageMarkupChange,
+  onOperationRowMarkupChange,
   onSupplyTypeChange,
   skus,
   settings
@@ -942,9 +981,7 @@ function WarehousePriceListModal({
   onClose: () => void;
   onFulfillmentExtraChange: (operationKey: string, isSelected: boolean) => void;
   onFulfillmentExtrasToggle: () => void;
-  onMarkupChange: (group: WarehouseOperationGroup, value: number) => void;
-  onReceivingMarkupChange: (operationKey: string, value: number) => void;
-  onStorageMarkupChange: (operationKey: string, value: number) => void;
+  onOperationRowMarkupChange: (operationKey: string, value: number) => void;
   onSupplyTypeChange: (value: CalculatorSettings["warehouseSupplyType"]) => void;
   skus: SkuInput[];
   settings: CalculatorSettings;
@@ -983,13 +1020,8 @@ function WarehousePriceListModal({
             <tbody>
               {groupedOperations.map(({ group, operations }) =>
                 operations.map((operation, index) => {
-                  const operationKey = warehouseOperationKey(operation);
-                  const markupPercent =
-                    group === "receiving"
-                      ? settings.warehouseReceivingMarkupPercents[operationKey] ?? settings.warehouseOperationMarkupPercents.receiving ?? 20
-                      : group === "storage"
-                        ? settings.warehouseStorageMarkupPercents[operationKey] ?? defaultWarehouseStorageMarkupPercent(operationKey)
-                      : settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
+                  const operationKey = warehouseOperationKey(operation, group);
+                  const markupPercent = warehouseOperationMarkupPercent(settings, group, operationKey);
                   const costRub = displayWarehousePrice(operation.priceRub, settings.vatDisplayMode);
                   const saleRub = roundRub(costRub * (1 + markupPercent / 100));
                   return (
@@ -999,9 +1031,9 @@ function WarehousePriceListModal({
                           <div className="price-list-group-title">
                             <strong>{warehouseGroupDetails[group].label}</strong>
                             <span className="help">
-                              <button
-                                type="button"
-                                className="help-trigger"
+                                  <button
+                                    type="button"
+                                    className="help-trigger"
                                 aria-label={`Описание группы ${warehouseGroupDetails[group].label}`}
                               >
                                 ?
@@ -1039,7 +1071,7 @@ function WarehousePriceListModal({
                         <span className="operation-pick">
                           {isFulfillmentExtraOperation(operation.name) ? (
                             <input
-                              aria-label={`${displayWarehouseOperationName(operation.name)}: участвует в расчете`}
+                              aria-label={`${displayWarehouseOperationName(operation.name, group)}: участвует в расчете`}
                               checked={settings.warehouseFulfillmentExtraOperations[operationKey] === true}
                               type="checkbox"
                               onChange={(event) => onFulfillmentExtraChange(operationKey, event.target.checked)}
@@ -1052,38 +1084,33 @@ function WarehousePriceListModal({
                               ✓
                             </span>
                           )}
-                          <span>{displayWarehouseOperationName(operation.name)}</span>
+                          <span className="operation-name-with-help">
+                            <span>{displayWarehouseOperationName(operation.name, group)}</span>
+                            {operation.description ? (
+                              <span className="help operation-help">
+                                <button type="button" className="help-trigger" aria-label={`Описание операции ${displayWarehouseOperationName(operation.name, group)}`}>
+                                  ?
+                                </button>
+                                <span className="help-card" role="tooltip">
+                                  <span className="help-text">{operation.description}</span>
+                                </span>
+                              </span>
+                            ) : null}
+                          </span>
                         </span>
                       </td>
                       <td>{operation.unit}</td>
                       <td className="numeric">{formatRub(costRub)}</td>
-                      {group === "receiving" || group === "storage" ? (
-                        <td className="numeric price-list-markup">
-                          <input
-                            aria-label={`${displayWarehouseOperationName(operation.name)}: процент наценки`}
-                            min="0"
-                            step="1"
-                            type="number"
-                            value={markupPercent}
-                            onChange={(event) =>
-                              group === "receiving"
-                                ? onReceivingMarkupChange(operationKey, parseInputNumber(event.target.value))
-                                : onStorageMarkupChange(operationKey, parseInputNumber(event.target.value))
-                            }
-                          />
-                        </td>
-                      ) : index === 0 ? (
-                        <td className="numeric price-list-markup" rowSpan={operations.length}>
-                          <input
-                            aria-label={`${warehouseGroupDetails[group].label}: процент наценки`}
-                            min="0"
-                            step="1"
-                            type="number"
-                            value={markupPercent}
-                            onChange={(event) => onMarkupChange(group, parseInputNumber(event.target.value))}
-                          />
-                        </td>
-                      ) : null}
+                      <td className="numeric price-list-markup">
+                        <input
+                          aria-label={`${displayWarehouseOperationName(operation.name, group)}: процент наценки`}
+                          min="0"
+                          step="1"
+                          type="number"
+                          value={markupPercent}
+                          onChange={(event) => onOperationRowMarkupChange(operationKey, parseInputNumber(event.target.value))}
+                        />
+                      </td>
                       <td className="numeric">{formatRub(saleRub)}</td>
                     </tr>
                   );
@@ -1359,10 +1386,10 @@ function warehousePriceListGroups(skus: SkuInput[], settings: CalculatorSettings
       operations: operations
         .filter(
           (operation) => {
-            if (warehouseGroupForOperation(operation.name) !== group || !isWarehouseOperationVisible(operation.name)) return false;
+            if (!warehouseOperationBelongsToGroup(operation.name, group) || !isWarehouseOperationVisible(operation.name)) return false;
             if (group === "fulfillment" && isFulfillmentExtraOperation(operation.name)) {
               if (!warehouseExtraOperationMatchesCurrentSkus(operation.name, skus)) return false;
-              return isFulfillmentExtrasOpen || settings.warehouseFulfillmentExtraOperations[warehouseOperationKey(operation)] === true;
+              return isFulfillmentExtrasOpen || settings.warehouseFulfillmentExtraOperations[warehouseOperationKey(operation, group)] === true;
             }
             return warehouseOperationMatchesCurrentSkus(operation.name, group, settings.warehouseSupplyType, skus);
           }
@@ -1396,7 +1423,12 @@ function isWarehouseOperationVisible(name: string): boolean {
   return !normalized.includes("механизированная выгрузка/отгрузка паллеты, негабарит");
 }
 
-function displayWarehouseOperationName(name: string): string {
+function displayWarehouseOperationName(name: string, group?: WarehouseOperationGroup): string {
+  if (group === "shipping") {
+    return name
+      .replaceAll("Ручная выгрузка/отгрузка", "Ручная отгрузка")
+      .replaceAll("ручная выгрузка/отгрузка", "ручная отгрузка");
+  }
   if (name.toLowerCase() === "хранение товара") return "Хранение товара в литрах";
   return name
     .replaceAll("выгрузка/отгрузка", "выгрузка")
@@ -1406,11 +1438,23 @@ function displayWarehouseOperationName(name: string): string {
     .replaceAll(", объем > 2-х литров < 5 литров", ", объем > 2 литров");
 }
 
-function defaultWarehouseStorageMarkupPercent(operationKey: string): number {
-  return operationKey.toLowerCase() === "хранение товара" ? 30 : 20;
+function warehouseOperationMarkupPercent(settings: CalculatorSettings, group: WarehouseOperationGroup, operationKey: string): number {
+  return (
+    settings.warehouseOperationRowMarkupPercents[operationKey] ??
+    defaultWarehouseOperationRowMarkupPercent(settings, group, operationKey) ??
+    settings.warehouseMarkupPercent ??
+    20
+  );
 }
 
-function warehouseOperationKey(operation: { name: string; priceRub: number }): string {
+function defaultWarehouseOperationRowMarkupPercent(settings: CalculatorSettings, group: WarehouseOperationGroup, operationKey: string): number {
+  const groupPercent = settings.warehouseOperationMarkupPercents[group];
+  if (group === "storage" && operationKey.toLowerCase() === "хранение товара" && groupPercent === 20) return 30;
+  return groupPercent ?? 20;
+}
+
+function warehouseOperationKey(operation: { name: string; priceRub: number }, group?: WarehouseOperationGroup): string {
+  if (group === "shipping") return `shipping:${operation.name}`;
   return isFulfillmentExtraOperation(operation.name) ? `${operation.name}::${operation.priceRub}` : operation.name;
 }
 
@@ -1442,6 +1486,9 @@ function warehouseOperationMatchesCurrentSkus(
       return skus.some((sku) => warehouseWeightRangeMatches(name, sku.weightKg));
     }
     return normalized.includes("маркировка ручная");
+  }
+  if (group === "shipping") {
+    return normalized.includes("ручная выгрузка/отгрузка") && skus.some((sku) => warehouseWeightRangeMatches(name, sku.weightKg));
   }
 
   const weightRange = warehouseWeightRange(name);
@@ -1498,6 +1545,13 @@ function warehouseGroupForOperation(name: string): WarehouseOperationGroup {
   return "fulfillment";
 }
 
+function warehouseOperationBelongsToGroup(name: string, group: WarehouseOperationGroup): boolean {
+  const normalized = name.toLowerCase();
+  if (group === "receiving" && normalized.includes("ручная выгрузка/отгрузка")) return true;
+  if (group === "shipping" && normalized.includes("ручная выгрузка/отгрузка")) return true;
+  return warehouseGroupForOperation(name) === group;
+}
+
 function warehouseOperationSelected(
   group: WarehouseOperationGroup,
   operationName: string,
@@ -1519,6 +1573,7 @@ function warehouseOperationSelected(
     if (isFulfillmentExtraOperation(operationName)) return Object.entries(settings.warehouseFulfillmentExtraOperations).some(([key, value]) => value && key.startsWith(`${operationName}::`));
     return normalized.includes("комплектация/расформирование заказа") || normalized.includes("маркировка ручная");
   }
+  if (group === "shipping") return normalized.includes("ручная выгрузка/отгрузка");
   return false;
 }
 
