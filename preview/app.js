@@ -682,6 +682,7 @@ function warehousePriceListGroups() {
           (operation) => {
             if (warehouseGroupForOperation(operation.name) !== group || !isWarehouseOperationVisible(operation.name)) return false;
             if (group === "fulfillment" && isFulfillmentExtraOperation(operation.name)) {
+              if (!warehouseExtraOperationMatchesCurrentSkus(operation.name)) return false;
               return isFulfillmentExtrasOpen || settings.warehouseFulfillmentExtraOperations[warehouseOperationKey(operation)] === true;
             }
             return warehouseOperationMatchesCurrentSkus(operation.name, group, settings.warehouseSupplyType);
@@ -693,8 +694,19 @@ function warehousePriceListGroups() {
 }
 
 function warehouseOperationSortIndex(group, name) {
-  if (group !== "storage") return 0;
   const normalized = name.toLowerCase();
+  if (group === "fulfillment") {
+    if (normalized.includes("комплектация/расформирование заказа")) return 0;
+    if (normalized.includes("маркировка ручная")) return 1;
+    if (normalized === "сканирование чз") return 2;
+    if (normalized === "сканирование серийного номера") return 3;
+    if (normalized === "упаковка в пакет с клеевым клапаном") return 4;
+    if (normalized === "упаковка в стрейч-пленку") return 5;
+    if (normalized.includes("упаковка в пузырчатую пленку")) return 6;
+    if (normalized.includes("упаковка в термоусадочную пленку")) return 7;
+    return 99;
+  }
+  if (group !== "storage") return 0;
   if (normalized.includes("сортировка по артикулам")) return 0;
   if (normalized === "хранение товара") return 1;
   return 2;
@@ -711,7 +723,8 @@ function displayWarehouseOperationName(name) {
     .replaceAll("выгрузка/отгрузка", "выгрузка")
     .replaceAll("Выгрузка/отгрузка", "Выгрузка")
     .replaceAll("/Расформирование заказа", "")
-    .replaceAll("пакет с клеевым клапаном", "пакет с клапаном");
+    .replaceAll("пакет с клеевым клапаном", "пакет с клапаном")
+    .replaceAll(", объем > 2-х литров < 5 литров", ", объем > 2 литров");
 }
 
 function defaultWarehouseStorageMarkupPercent(operationKey) {
@@ -768,6 +781,26 @@ function warehouseWeightRangeMatches(name, weightKg) {
   const range = warehouseWeightRange(name);
   if (!range) return false;
   return weightKg > range.minKg && weightKg <= range.maxKg;
+}
+
+function warehouseExtraOperationMatchesCurrentSkus(name) {
+  const range = warehouseOperationVolumeRange(name);
+  if (!range) return true;
+  return skus.some((sku) => {
+    const { volumeLiters } = skuMetrics(sku);
+    return volumeLiters > range.minLiter && volumeLiters < range.maxLiter;
+  });
+}
+
+function warehouseOperationVolumeRange(name) {
+  const normalized = normalizeWarehouseOperationName(name);
+  if (normalized.includes("объем<2литров")) return { minLiter: Number.NEGATIVE_INFINITY, maxLiter: 2 };
+  if (normalized.includes("объем>2-хлитров<5литров") || normalized.includes("объем>2литров<5литров")) return { minLiter: 2, maxLiter: Number.POSITIVE_INFINITY };
+  return null;
+}
+
+function normalizeWarehouseOperationName(name) {
+  return name.toLowerCase().replaceAll("ё", "е").replace(/\s/g, "");
 }
 
 function warehouseGroupForOperation(name) {

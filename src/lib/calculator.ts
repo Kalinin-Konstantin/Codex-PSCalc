@@ -559,6 +559,7 @@ function pimWarehouseCosts(
 
 function fulfillmentExtraCosts(sku: SkuInput, warehouse: WarehouseTariffs, settings: CalculatorSettings): DraftBreakdownItem[] {
   return fulfillmentExtraOperations(warehouse.operations ?? [])
+    .filter((operation) => fulfillmentExtraOperationMatchesSku(operation.name, sku))
     .filter((operation) => settings.warehouseFulfillmentExtraOperations[fulfillmentExtraOperationKey(operation)])
     .map((operation) => {
       const amountRub = warehouseOperationUnitCost(operation, sku);
@@ -594,6 +595,24 @@ function isFulfillmentExtraOperationName(name: string): boolean {
     normalized === "сканирование чз" ||
     normalized === "сканирование серийного номера"
   );
+}
+
+function fulfillmentExtraOperationMatchesSku(name: string, sku: SkuInput): boolean {
+  const range = fulfillmentExtraOperationVolumeRange(name);
+  if (!range) return true;
+  const { volumeLiters } = calculateSkuMetrics(sku);
+  return volumeLiters > range.minLiter && volumeLiters < range.maxLiter;
+}
+
+function fulfillmentExtraOperationVolumeRange(name: string): { minLiter: number; maxLiter: number } | null {
+  const normalized = normalizeWarehouseOperationName(name);
+  if (normalized.includes("объем<2литров")) return { minLiter: Number.NEGATIVE_INFINITY, maxLiter: 2 };
+  if (normalized.includes("объем>2-хлитров<5литров") || normalized.includes("объем>2литров<5литров")) return { minLiter: 2, maxLiter: Number.POSITIVE_INFINITY };
+  return null;
+}
+
+function normalizeWarehouseOperationName(name: string): string {
+  return name.toLowerCase().replaceAll("ё", "е").replace(/\s/g, "");
 }
 
 function warehouseOperationUnitCost(operation: NonNullable<WarehouseTariffs["operations"]>[number], sku: SkuInput): number {
@@ -692,7 +711,10 @@ function receivingOperationDisplayName(name: string): string {
 }
 
 function fulfillmentOperationDisplayName(name: string): string {
-  return name.replaceAll("/Расформирование заказа", "").replaceAll("пакет с клеевым клапаном", "пакет с клапаном");
+  return name
+    .replaceAll("/Расформирование заказа", "")
+    .replaceAll("пакет с клеевым клапаном", "пакет с клапаном")
+    .replaceAll(", объем > 2-х литров < 5 литров", ", объем > 2 литров");
 }
 
 function manualReceivingCost(weightKg: number, operations: NonNullable<WarehouseTariffs["operations"]>): { name: string; priceRub: number } {

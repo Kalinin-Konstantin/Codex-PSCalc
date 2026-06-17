@@ -550,6 +550,56 @@ test("warehouse fulfillment extras are optional and included only after selectio
   assert.equal(honestSignScan?.amountRub, 4.95);
 });
 
+test("volume-banded fulfillment extras apply only to matching SKU volumes", () => {
+  const smallBubbleWrapKey = "Упаковка в пузырчатую пленку объем < 2 литров::29.7";
+  const largeBubbleWrapKey = "Упаковка в пузырчатую пленку, объем > 2-х литров < 5 литров::35.55";
+  const smallShrinkWrapKey = "Упаковка в термоусадочную пленку объем < 2 литров::17.97";
+  const largeShrinkWrapKey = "Упаковка в термоусадочную пленку, объем > 2-х литров < 5 литров::23.37";
+  const largeFbs = calculateAllSchemes(
+    skus[0],
+    {
+      ...settings,
+      warehouseFulfillmentExtraOperations: {
+        [smallBubbleWrapKey]: true,
+        [largeBubbleWrapKey]: true,
+        [smallShrinkWrapKey]: true,
+        [largeShrinkWrapKey]: true
+      }
+    },
+    tariffs
+  ).wildberries.fbs;
+  const smallSku: SkuInput = {
+    ...skus[0],
+    id: "small-bubble-wrap",
+    lengthCm: 10,
+    widthCm: 10,
+    heightCm: 10,
+    weightKg: 0.5
+  };
+  const smallFbs = calculateAllSchemes(
+    smallSku,
+    {
+      ...settings,
+      warehouseFulfillmentExtraOperations: {
+        [smallBubbleWrapKey]: true,
+        [largeBubbleWrapKey]: true,
+        [smallShrinkWrapKey]: true,
+        [largeShrinkWrapKey]: true
+      }
+    },
+    tariffs
+  ).wildberries.fbs;
+
+  assert.equal(largeFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${smallBubbleWrapKey}`), undefined);
+  assert.equal(largeFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${smallShrinkWrapKey}`), undefined);
+  assert.equal(largeFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${largeBubbleWrapKey}`)?.amountRub, 35.55);
+  assert.equal(largeFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${largeShrinkWrapKey}`)?.amountRub, 23.37);
+  assert.equal(smallFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${smallBubbleWrapKey}`)?.amountRub, 29.7);
+  assert.equal(smallFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${smallShrinkWrapKey}`)?.amountRub, 17.97);
+  assert.equal(smallFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${largeBubbleWrapKey}`), undefined);
+  assert.equal(smallFbs.breakdown.find((item) => item.key === `pimFulfillmentExtra:${largeShrinkWrapKey}`), undefined);
+});
+
 test("warehouse receiving markup can be set per visible operation row", () => {
   const boxes = calculateAllSchemes(
     skus[0],
