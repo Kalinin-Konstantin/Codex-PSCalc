@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PIM.Seller Calculator Preview</title>
+    <link rel="icon" href="./pim-seller-logo.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <img class="brand-logo" src="./pim-seller-logo.png" alt="PIM.Seller" />
+          <div>
+            <p class="eyebrow">Прототип калькулятора</p>
+            <h1>Калькулятор юнит-экономики</h1>
+          </div>
+        </div>
+        <div class="status-strip">
+          <div class="metric"><span>SKU</span><strong id="metric-skus">0</strong></div>
+          <div class="metric"><span>Среднее</span><strong id="metric-average">—</strong></div>
+          <div class="metric"><span>Лучший вариант</span><strong id="metric-best">—</strong></div>
+          <div class="metric"><span>Тарифы WB</span><strong id="metric-wb-tariffs">—</strong></div>
+        </div>
+        <button id="admin-trigger" class="admin-trigger" type="button" aria-label="Открыть админ-панель">•</button>
+      </header>
+
+      <section class="settings-band">
+        <div class="settings-group route-group">
+          <div class="settings-title"><span>Маршрут</span><strong>Откуда и куда везём</strong></div>
+          <div class="settings-controls two-columns">
+            <label>
+              <span>Откуда</span>
+              <div class="combo">
+                <input id="origin-city" role="combobox" aria-expanded="false" aria-haspopup="listbox" autocomplete="off" />
+                <div id="origin-city-menu" class="combo-menu" role="listbox" hidden></div>
+              </div>
+            </label>
+            <label>
+              <span>Куда</span>
+              <select id="first-mile-city"></select>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title"><span>Маркетплейс</span><strong>Wildberries</strong></div>
+          <div class="settings-controls">
+            <label>
+              <span>Склад WB</span>
+              <select id="wb-warehouse"></select>
+            </label>
+            <label>
+              <span>Тип поставки</span>
+              <select id="wb-supply-type">
+                <option value="box">Короб</option>
+                <option value="pallet">Монопаллета</option>
+              </select>
+            </label>
+            <label>
+              <span>Индекс локализации</span>
+              <input id="localization-index" min="0" step="0.05" type="number" />
+            </label>
+            <label>
+              <span>Индекс распределения продаж</span>
+              <input id="sales-distribution-index" min="0" step="0.001" type="number" />
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="settings-title"><span>Маркетплейс</span><strong>Ozon</strong></div>
+          <div class="settings-controls">
+            <label>
+              <span>Доставка Ozon</span>
+              <select id="ozon-delivery-mode">
+                <option value="local">Локальный кластер</option>
+                <option value="cluster">Выбрать кластер</option>
+              </select>
+            </label>
+            <label>
+              <span>Кластер доставки</span>
+              <select id="ozon-delivery-cluster"></select>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-group common-group">
+          <div class="settings-title"><span>Общие</span><strong>Расчёт</strong></div>
+          <div class="settings-controls">
+            <label>
+              <span>Дней хранения</span>
+              <input id="storage-days" min="0" type="number" />
+            </label>
+            <label>
+              <span>НДС</span>
+              <select id="vat-display-mode">
+                <option value="without_vat">Без НДС</option>
+                <option value="with_vat">С НДС</option>
+              </select>
+            </label>
+            <label>
+              <span>Зона доставки по DBS</span>
+              <select id="last-mile-zone">
+                <option value="city">Город</option>
+                <option value="region">Область / регион</option>
+              </select>
+            </label>
+            <div class="toggle-field">
+              <label class="checkbox-label">
+                <input id="fast-handover" type="checkbox" />
+                <span>Быстрая сдача</span>
+              </label>
+              <div class="help">
+                <button type="button" class="help-trigger" aria-label="Что значит быстрая сдача?">?</button>
+                <div class="help-card" role="tooltip">
+                  <strong>Скидка к комиссии маркетплейса</strong>
+                  <table>
+                    <thead>
+                      <tr><th>МП</th><th>Схема</th><th>Быстрая сдача</th><th>Эффект</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>WB</td><td>FBS МГТ/КГТ+</td><td>до 13 часов</td><td>-1,5 п.п. к комиссии</td></tr>
+                      <tr><td>WB</td><td>FBS МГТ/КГТ+</td><td>13-18 часов</td><td>базовая комиссия</td></tr>
+                      <tr><td>WB</td><td>FBS СГТ</td><td>любое время</td><td>без изменений</td></tr>
+                      <tr><td>Ozon</td><td>FBS, СЦ/курьер</td><td>до 12 часов</td><td>скидка 3%</td></tr>
+                      <tr><td>Ozon</td><td>FBS, СЦ/курьер</td><td>12-24 часа</td><td>скидка 2%</td></tr>
+                      <tr><td>Ozon</td><td>FBS, ПВЗ/ППЗ</td><td>до рекомендованного слота</td><td>скидка 2%</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <label>
+              <span>Условие Ozon FBS</span>
+              <select id="ozon-fast-handover-type">
+                <option value="sc_courier_under_12">Ozon FBS, СЦ/курьер: до 12 часов</option>
+                <option value="sc_courier_12_24">Ozon FBS, СЦ/курьер: 12-24 часа</option>
+                <option value="pvz_ppz_recommended_slot">Ozon FBS, ПВЗ/ППЗ: до рекомендованного слота</option>
+              </select>
+            </label>
+            <div class="vat-badge">Суммы без НДС</div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <h2>SKU</h2>
+          <button id="add-sku" type="button">Добавить SKU</button>
+        </div>
+        <div class="sku-table-wrap">
+          <table class="sku-table">
+            <thead>
+              <tr>
+                <th>Название</th>
+                <th>Цена с НДС</th>
+                <th>WB категория</th>
+                <th>Ozon тип товара</th>
+                <th>Вес</th>
+                <th>Длина</th>
+                <th>Ширина</th>
+                <th>Высота</th>
+                <th>На паллете</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="sku-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <h2>Сравнение схем</h2>
+          <span>6 вариантов на каждый SKU</span>
+        </div>
+        <div class="matrix-wrap">
+          <table class="matrix">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Объём</th>
+                <th>WB FBO</th>
+                <th>WB FBS</th>
+                <th>WB DBS</th>
+                <th>Ozon FBO</th>
+                <th>Ozon FBS</th>
+                <th>Ozon DBS</th>
+              </tr>
+            </thead>
+            <tbody id="result-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <aside id="admin-panel" class="admin-panel" aria-label="Админ-панель" hidden>
+        <div class="admin-panel-header">
+          <div>
+            <span>Внутренний режим</span>
+            <strong>Коммерческие настройки</strong>
+          </div>
+          <button id="admin-close" class="icon-button" type="button" aria-label="Закрыть админ-панель">×</button>
+        </div>
+        <div class="internal-panel">
+          <div class="admin-section-title compact">
+            <strong>Наценка PIM.Seller</strong>
+            <span>база тарифа, процент и рублевая наценка</span>
+          </div>
+          <div class="markup-cards">
+            <section class="markup-card">
+              <div class="markup-card-title">
+                <strong>Первая миля</strong>
+                <div class="help">
+                  <button type="button" class="help-trigger" aria-label="Что входит в первую милю?">?</button>
+                  <div class="help-card" role="tooltip">
+                    <strong>Первая миля</strong>
+                    <p>Доставка товара от точки отправки селлера до выбранного города/склада PIM.Seller. В админке база берётся как тариф за паллету по маршруту, а в расчёте делится на количество штук на паллете.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="markup-head" aria-hidden="true"><span></span><span>Тариф</span><span>%</span><span>Наценка</span></div>
+              <div class="markup-lines">
+                <div class="markup-line">
+                  <span>Паллета</span>
+                  <strong id="first-mile-base-label">0 ₽</strong>
+                  <label><input id="first-mile-markup-percent" aria-label="Паллета: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="first-mile-markup-rub" aria-label="Паллета: наценка, ₽" min="0" step="0.01" type="number" /></label>
+                </div>
+              </div>
+            </section>
+            <section class="markup-card">
+              <div class="markup-card-title">
+                <strong>Складские операции</strong>
+                <div class="markup-card-actions">
+                  <button class="link-button" id="warehouse-price-list-open" type="button">Прайс-лист</button>
+                  <div class="help">
+                    <button type="button" class="help-trigger" aria-label="Что входит в складские операции?">?</button>
+                    <div class="help-card" role="tooltip">
+                      <strong>Складские операции</strong>
+                      <p>Операции PIM.Seller на складе: приёмка, хранение, комплектация и отгрузка. Наценка применяется к соответствующим складским статьям в FBS и DBS.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="markup-head" aria-hidden="true"><span></span><span>Тариф</span><span>%</span><span>Наценка</span></div>
+              <div class="markup-lines" id="warehouse-markup-lines"></div>
+            </section>
+            <section class="markup-card">
+              <div class="markup-card-title">
+                <strong>Средняя миля</strong>
+                <div class="help">
+                  <button type="button" class="help-trigger" aria-label="Что входит в среднюю милю?">?</button>
+                  <div class="help-card" role="tooltip">
+                    <strong>Средняя миля</strong>
+                    <p>Перемещение товара после обработки на складе PIM.Seller до канала дальнейшей доставки. Тариф зависит от литража SKU: отдельно первый литр, диапазоны до 350 л и фиксированные тарифы для больших объёмов.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="markup-head" aria-hidden="true"><span></span><span>Тариф</span><span>%</span><span>Наценка</span></div>
+              <div class="markup-lines">
+                <div class="markup-line" id="middle-mile-first-liter-row">
+                  <span>1 литр</span>
+                  <strong id="middle-mile-first-liter-base-label">0 ₽</strong>
+                  <label><input id="middle-mile-first-liter-markup-percent" aria-label="1 литр: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="middle-mile-first-liter-markup-rub" aria-label="1 литр: наценка, ₽" min="0" step="0.01" type="number" /></label>
+                </div>
+                <div class="markup-line" id="middle-mile-additional-liter-row">
+                  <span>2-190 л</span>
+                  <strong id="middle-mile-additional-liter-base-label">0 ₽</strong>
+                  <label><input id="middle-mile-additional-liter-markup-percent" aria-label="2-190 л: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="middle-mile-additional-liter-markup-rub" aria-label="2-190 л: наценка, ₽/л" min="0" step="0.01" type="number" /></label>
+                </div>
+                <div class="markup-line" id="middle-mile-over-190-liter-row" hidden>
+                  <span>191-350 л</span>
+                  <strong id="middle-mile-over-190-liter-base-label">0 ₽</strong>
+                  <label><input id="middle-mile-over-190-liter-markup-percent" aria-label="191-350 л: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="middle-mile-over-190-liter-markup-rub" aria-label="191-350 л: наценка, ₽/л" min="0" step="0.01" type="number" /></label>
+                </div>
+                <div class="markup-line" id="middle-mile-from-351-row" hidden>
+                  <span>351-1000 л</span>
+                  <strong id="middle-mile-from-351-base-label">0 ₽</strong>
+                  <label><input id="middle-mile-from-351-markup-percent" aria-label="351-1000 л: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="middle-mile-from-351-markup-rub" aria-label="351-1000 л: наценка, ₽" min="0" step="0.01" type="number" /></label>
+                </div>
+                <div class="markup-line" id="middle-mile-from-1001-row" hidden>
+                  <span>1001+ л</span>
+                  <strong id="middle-mile-from-1001-base-label">0 ₽</strong>
+                  <label><input id="middle-mile-from-1001-markup-percent" aria-label="1001+ л: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="middle-mile-from-1001-markup-rub" aria-label="1001+ л: наценка, ₽" min="0" step="0.01" type="number" /></label>
+                </div>
+              </div>
+            </section>
+            <section class="markup-card">
+              <div class="markup-card-title">
+                <strong>Последняя миля</strong>
+                <div class="help">
+                  <button type="button" class="help-trigger" aria-label="Что входит в последнюю милю?">?</button>
+                  <div class="help-card" role="tooltip">
+                    <strong>Последняя миля</strong>
+                    <p>Доставка заказа до покупателя в DBS-модели силами PIM.Seller. Считается по выбранному городу и зоне доставки, с базовым тарифом до лимита веса и доплатой за каждый следующий килограмм.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="markup-head" aria-hidden="true"><span></span><span>Тариф</span><span>%</span><span>Наценка</span></div>
+              <div class="markup-lines">
+                <div class="markup-line">
+                  <span id="last-mile-base-markup-label">До 3 кг</span>
+                  <strong id="last-mile-base-label">0 ₽</strong>
+                  <label><input id="last-mile-base-markup-percent" aria-label="До лимита: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="last-mile-base-markup-rub" aria-label="До лимита: наценка, ₽" min="0" step="0.01" type="number" /></label>
+                </div>
+                <div class="markup-line">
+                  <span>Сверх лимита</span>
+                  <strong id="last-mile-additional-kg-base-label">0 ₽</strong>
+                  <label><input id="last-mile-additional-kg-markup-percent" aria-label="Сверх лимита: процент наценки" min="0" step="1" type="number" /></label>
+                  <label><input id="last-mile-additional-kg-markup-rub" aria-label="Сверх лимита: наценка, ₽/кг" min="0" step="0.01" type="number" /></label>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <div class="admin-margin">
+          <div class="admin-section-title">
+            <strong>Маржа на 1 SKU</strong>
+            <span id="admin-margin-vat-label">без НДС, по центрам прибыли</span>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Маркетплейс</th>
+                  <th>Схема</th>
+                  <th>Первая</th>
+                  <th>Склад</th>
+                  <th>Средняя</th>
+                  <th>Последняя</th>
+                  <th>Итого</th>
+                </tr>
+              </thead>
+              <tbody id="admin-margin-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </aside>
+    </main>
+    <datalist id="wb-subjects"></datalist>
+    <datalist id="ozon-product-types"></datalist>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "source": "Средняя миля .docx",
+  "vat": "without_vat",
+  "calculationRules": {
+    "basis": "volumeLiters",
+    "to1Liter": "17.39 fixed",
+    "from1To190Liters": "17.39 + (liters - 1) * 2.83",
+    "from191To350Liters": "17.39 + 189 * 2.83 + (liters - 190) * 3.26",
+    "from351To1000Liters": "2826.09 fixed",
+    "from1001Liters": "5434.78 fixed",
+    "status": "business confirmed"
+  },
+  "tiers": [
+    {
+      "name": "Доставка до 1 литра",
+      "priceRub": 17.39
+    },
+    {
+      "name": "Доставка до 3 литров (за каждый следующий 1 литр)",
+      "priceRub": 2.83
+    },
+    {
+      "name": "Доставка до 190 литров (за каждый следующий 1 литр)",
+      "priceRub": 2.83
+    },
+    {
+      "name": "Доставка до 191-350 литров (за каждый следующий 1 литр)",
+      "priceRub": 3.26
+    },
+    {
+      "name": "Доставка до 351-1000 литров (фиксировано)",
+      "priceRub": 2826.09
+    },
+    {
+      "name": "Доставка свыше 1001 литров (фиксировано)",
+      "priceRub": 5434.78
+    }
+  ]
+}
