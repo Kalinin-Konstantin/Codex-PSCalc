@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  breakdownItemsForDisplay,
   calculateAllSchemes,
   calculateSkuMetrics,
   classifySkuDimensions,
@@ -10,6 +11,7 @@ import {
   findWbCommission,
   flattenResults
 } from "../src/lib/calculator.ts";
+import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
 import type { CalculatorSettings, SkuInput, TariffData } from "../src/lib/types.ts";
 
 const readJson = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf-8"));
@@ -169,6 +171,20 @@ test("wildberries commission columns are mapped to FBO/FBS/DBS schemes", () => {
   assert.deepEqual(first.commission, { fbo: 0.17, fbs: 0.3, dbs: 0.25 });
 });
 
+test("wildberries kitchen mixer uses selected category subject and mapped scheme columns", () => {
+  const mixer = findWbCommission(
+    { wbCategory: "Техника для кухни", wbSubject: "Миксеры" },
+    tariffs.wildberriesCommissions
+  );
+  const lowercaseMixer = findWbCommission(
+    { wbCategory: "техника для кухни", wbSubject: "миксеры" },
+    tariffs.wildberriesCommissions
+  );
+
+  assert.deepEqual(mixer, { fbo: 0.15, fbs: 0.26, dbs: 0.15 });
+  assert.deepEqual(lowercaseMixer, mixer);
+});
+
 test("ozon commission columns and price bands are mapped to scheme rates with RFBS as DBS", () => {
   assert.equal(ozonSource.columnMapping.fboColumns, "C:H");
   assert.equal(ozonSource.columnMapping.fbsColumns, "O:T");
@@ -193,6 +209,57 @@ test("ozon commission columns and price bands are mapped to scheme rates with RF
     findOzonCommission({ price: 5001, ozonProductType: "3D-очки", ozonCategory: "VR-устройства и аксессуары" }, "dbs", tariffs.ozonCommissions),
     0.5
   );
+});
+
+test("ozon mixer commission uses selected product type category and SKU price band", () => {
+  const mixer = {
+    ozonCategory: "Миксеры, блендеры, измельчители",
+    ozonProductType: "Миксер кухонный"
+  };
+
+  assert.deepEqual(
+    tariffs.ozonCommissions
+      .filter((entry) => entry.category === mixer.ozonCategory)
+      .map((entry) => entry.productType)
+      .filter((type) => type.includes("Миксер")),
+    ["Миксер кухонный"]
+  );
+  assert.equal(findOzonCommission({ ...mixer, price: 4000 }, "fbo", tariffs.ozonCommissions), 0.38);
+  assert.equal(
+    findOzonCommission({ ozonCategory: "миксеры, блендеры, измельчители", ozonProductType: "миксер кухонный", price: 4000 }, "fbo", tariffs.ozonCommissions),
+    0.38
+  );
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbo", tariffs.ozonCommissions), 0.41);
+  assert.equal(findOzonCommission({ ...mixer, price: 12000 }, "fbo", tariffs.ozonCommissions), 0.4);
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbs", tariffs.ozonCommissions), 0.47);
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "dbs", tariffs.ozonCommissions), 0.47);
+});
+
+test("SKU Excel import rows restore marketplace categories from subject and product type", () => {
+  const result = buildSkusFromImportRows(
+    [
+      {
+        "Наименование": "Планетарный миксер",
+        "Цена с НДС": 15034,
+        "WB пердмет": "миксеры",
+        "Тип товара Ozon": "миксер кухонный",
+        "вес": 9.42,
+        "длина": 30.8,
+        "высота": 60,
+        "ширина": 39.6,
+        "штук на паллете": 30
+      }
+    ],
+    tariffs
+  );
+
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.skus.length, 1);
+  assert.equal(result.skus[0].price, 15034);
+  assert.equal(result.skus[0].wbCategory, "Техника для кухни");
+  assert.equal(result.skus[0].wbSubject, "Миксеры");
+  assert.equal(result.skus[0].ozonCategory, "Миксеры, блендеры, измельчители");
+  assert.equal(result.skus[0].ozonProductType, "Миксер кухонный");
 });
 
 test("ozon commission lookup avoids charity duplicates for regular furniture SKUs", () => {
@@ -968,6 +1035,35 @@ test("scheme totals equal the rounded sum of their breakdown items", () => {
   for (const scheme of flattenResults(result)) {
     const sum = Math.round(scheme.breakdown.reduce((total, item) => total + item.amountRub, 0) * 100) / 100;
     assert.equal(scheme.totalRub, sum);
+  }
+});
+
+test("display breakdown follows client article order without changing totals", () => {
+  const result = calculateAllSchemes(skus[0], settings, tariffs);
+  const expectedOrders = new Map([
+    [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 17%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
+    [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 30%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
+    [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 25%", "Операции PIM.Seller", "Последняя миля"]],
+    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Последняя миля"]]
+  ]);
+
+  for (const schemeResult of flattenResults(result)) {
+    const displayItems = breakdownItemsForDisplay(schemeResult);
+    const displaySum = Math.round(displayItems.reduce((total, item) => total + item.amountRub, 0) * 100) / 100;
+
+    assert.equal(displaySum, schemeResult.totalRub);
+    assert.deepEqual(displayItems.map((item) => item.label), expectedOrders.get(schemeResult));
+  }
+
+  for (const schemeResult of [result.wildberries.fbs, result.wildberries.dbs, result.ozon.fbs, result.ozon.dbs]) {
+    const displayItems = breakdownItemsForDisplay(schemeResult);
+    assert.equal(displayItems.some((item) => item.key === "pimReceiving"), false);
+    assert.equal(displayItems.some((item) => item.key === "pimFulfillment"), false);
+    assert.equal(displayItems.filter((item) => item.key === "warehouseOperations").length, 1);
+    assert.match(displayItems.find((item) => item.key === "warehouseOperations")?.calculationNote ?? "", /Итого:/);
+    assert.doesNotMatch(displayItems.find((item) => item.key === "warehouseOperations")?.calculationNote ?? "", /маржа|Себестоимость/i);
   }
 });
 

@@ -41,8 +41,22 @@ const data = {
   destinationCities: routeCities.destinationCities,
   wbWarehousesByDestination,
   ozonDeliveryClusters: logistics.ozonLogistics.deliveryClusters,
+  wbCategories: uniqueSorted(wb.entries.map((item) => item.category)),
   wbSubjects: uniqueSorted(wb.entries.map((item) => item.subject)),
+  wbSubjectsByCategory: Object.fromEntries(
+    uniqueSorted(wb.entries.map((item) => item.category)).map((category) => [
+      category,
+      uniqueSorted(wb.entries.filter((item) => item.category === category).map((item) => item.subject))
+    ])
+  ),
+  ozonCategories: uniqueSorted(ozon.entries.map((item) => item.category)),
   ozonProductTypes: uniqueSorted(ozon.entries.map((item) => item.productType)),
+  ozonProductTypesByCategory: Object.fromEntries(
+    uniqueSorted(ozon.entries.map((item) => item.category)).map((category) => [
+      category,
+      uniqueSorted(ozon.entries.filter((item) => item.category === category).map((item) => item.productType))
+    ])
+  ),
   defaultSettings: {
     originCity: "Москва",
     firstMileCity: "Москва",

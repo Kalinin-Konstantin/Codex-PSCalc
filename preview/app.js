@@ -30,6 +30,34 @@ const VAT_RATE = 0.22;
 const WB_FAST_HANDOVER_DISCOUNT = 0.015;
 const wbTariffInfo = window.__PIM_DATA__.logistics.wildberriesLogistics;
 const warehouseGroupOrder = ["receiving", "storage", "fulfillment", "shipping"];
+const WAREHOUSE_OPERATIONS_DISPLAY_KEY = "warehouseOperations";
+const displayBreakdownOrder = {
+  wildberries: {
+    fbo: ["firstMile", "commission", "wbAcceptance", "wbStorage", "wbLastMile"],
+    fbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "middleMile", "wbFbsLastMile"],
+    dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
+  },
+  ozon: {
+    fbo: ["firstMile", "commission", "ozonFboNonlocalMarkup", "ozonFboStorage", "ozonFboLogisticsTariff", "ozonPickupPoint"],
+    fbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "middleMile", "ozonFbsAcceptance", "ozonFbsLogistics", "ozonPickupPoint"],
+    dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
+  }
+};
+const displayLabels = {
+  firstMile: "Первая миля",
+  middleMile: "Средняя миля",
+  lastMile: "Последняя миля",
+  wbAcceptance: "Приёмка WB",
+  wbStorage: "Хранение WB",
+  wbLastMile: "Логистика WB до покупателя",
+  wbFbsLastMile: "Логистика WB FBS",
+  ozonFboLogisticsTariff: "Логистика Ozon",
+  ozonFboNonlocalMarkup: "Наценка за нелокальную продажу",
+  ozonFboStorage: "Хранение Ozon",
+  ozonPickupPoint: "Доставка до ПВЗ",
+  ozonFbsAcceptance: "Приёмка отправления",
+  ozonFbsLogistics: "Логистика Ozon"
+};
 const warehouseGroupDetails = {
   receiving: {
     label: "Приёмка",
@@ -95,8 +123,8 @@ function init() {
   syncMarkupInputs();
   $("localization-index").value = settings.localizationIndex;
   $("sales-distribution-index").value = settings.salesDistributionIndex;
-  fillDatalist("wb-subjects", window.__PIM_DATA__.wbSubjects);
-  fillDatalist("ozon-product-types", window.__PIM_DATA__.ozonProductTypes);
+  fillDatalist("wb-categories", lookupDatalistValues(window.__PIM_DATA__.wbCategories));
+  fillDatalist("ozon-categories", lookupDatalistValues(window.__PIM_DATA__.ozonCategories));
 
   $("first-mile-city").addEventListener("change", (event) => {
     settings.firstMileCity = event.target.value;
@@ -206,6 +234,10 @@ function init() {
     skus.push(next);
     render();
   });
+  $("sku-import-file").addEventListener("change", async (event) => {
+    await handleSkuImport(event.target.files?.[0] ?? null);
+    event.target.value = "";
+  });
   render();
 }
 
@@ -217,6 +249,459 @@ function fillSelect(id, values, selected) {
 function fillDatalist(id, values) {
   $(id).innerHTML = values.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
 }
+
+async function handleSkuImport(file) {
+  if (!file) return;
+  try {
+    const rows = await readSkuRowsFromXlsx(file);
+    const result = buildSkusFromImportRows(rows);
+    if (!result.skus.length) {
+      showSkuImportStatus("error", result.warnings.join(" ") || "Не удалось загрузить SKU из файла.");
+      return;
+    }
+    skus = result.skus;
+    showSkuImportStatus(
+      result.warnings.length ? "error" : "success",
+      result.warnings.length
+        ? `Загружено SKU: ${result.skus.length}. Есть замечания: ${result.warnings.join(" ")}`
+        : `Загружено SKU: ${result.skus.length}.`
+    );
+    render();
+  } catch (error) {
+    showSkuImportStatus("error", error instanceof Error ? error.message : "Не удалось прочитать Excel-файл.");
+  }
+}
+
+function showSkuImportStatus(kind, message) {
+  const status = $("sku-import-status");
+  status.hidden = false;
+  status.className = `import-status ${kind}`;
+  status.textContent = message;
+}
+
+function downloadSkuTemplate() {
+  const url = URL.createObjectURL(createSkuImportTemplateBlob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "Шаблон загрузки SKU PIM.Seller.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function readSkuRowsFromXlsx(file) {
+  const entries = await readZipEntries(await file.arrayBuffer());
+  const entryByName = new Map(entries.map((entry) => [entry.name, entry.data]));
+  const workbookXml = decodeXmlEntry(entryByName, "xl/workbook.xml");
+  const workbookRelsXml = decodeXmlEntry(entryByName, "xl/_rels/workbook.xml.rels");
+  const sharedStrings = parseSharedStrings(entryByName.get("xl/sharedStrings.xml"));
+  const sheetPath = resolveWorksheetPath(workbookXml, workbookRelsXml);
+  return parseSheetRows(decodeXmlEntry(entryByName, sheetPath), sharedStrings);
+}
+
+function buildSkusFromImportRows(rows) {
+  const warnings = [];
+  const importedSkus = [];
+  rows.forEach((row, index) => {
+    const rowNumber = 3 + index;
+    if (Object.values(row).every((value) => value == null || String(value).trim() === "")) return;
+    const name = stringCell(row, ["Наименование"]);
+    const price = numberCell(row, ["Цена с НДС", "Цена"]);
+    const wbSubject = stringCell(row, ["WB предмет", "WB пердмет"]);
+    const ozonProductType = stringCell(row, ["Тип товара Ozon", "Ozon тип товара", "Тип товара OZON"]);
+    const weightKg = numberCell(row, ["вес", "Вес"]);
+    const lengthCm = numberCell(row, ["длина", "Длина"]);
+    const heightCm = numberCell(row, ["высота", "Высота"]);
+    const widthCm = numberCell(row, ["ширина", "Ширина"]);
+    const itemsPerPallet = numberCell(row, ["штук на паллете", "Штук на паллете", "Количество на паллете"]);
+    const missing = [
+      [name, "Наименование"],
+      [price, "Цена с НДС"],
+      [wbSubject, "WB предмет"],
+      [ozonProductType, "Тип товара Ozon"],
+      [weightKg, "вес"],
+      [lengthCm, "длина"],
+      [heightCm, "высота"],
+      [widthCm, "ширина"],
+      [itemsPerPallet, "штук на паллете"]
+    ]
+      .filter(([value]) => value == null || value === "")
+      .map(([, label]) => label);
+    if (missing.length) {
+      warnings.push(`Строка ${rowNumber}: не заполнены обязательные поля: ${missing.join(", ")}.`);
+      return;
+    }
+    const wbCategory = resolveWbCategory(String(wbSubject), stringCell(row, ["WB категория"]));
+    if (!wbCategory.value) {
+      warnings.push(`Строка ${rowNumber}: ${wbCategory.error}`);
+      return;
+    }
+    const ozonCategory = resolveOzonCategory(String(ozonProductType), stringCell(row, ["Ozon категория", "OZON категория"]));
+    if (!ozonCategory.value) {
+      warnings.push(`Строка ${rowNumber}: ${ozonCategory.error}`);
+      return;
+    }
+    importedSkus.push({
+      id: `import-${rowNumber}-${importedSkus.length + 1}`,
+      name: String(name),
+      price: Number(price),
+      wbCategory: wbCategory.value,
+      wbSubject: canonicalLookupValue(String(wbSubject), window.__PIM_DATA__.wildberriesCommissions.map((item) => item.subject)),
+      ozonCategory: ozonCategory.value,
+      ozonProductType: canonicalLookupValue(String(ozonProductType), window.__PIM_DATA__.ozonCommissions.map((item) => item.productType)),
+      weightKg: Number(weightKg),
+      lengthCm: Number(lengthCm),
+      widthCm: Number(widthCm),
+      heightCm: Number(heightCm),
+      itemsPerPallet: Number(itemsPerPallet)
+    });
+  });
+  if (!importedSkus.length && !warnings.length) warnings.push("В файле не найдено строк SKU для загрузки.");
+  return { skus: importedSkus, warnings };
+}
+
+function resolveWbCategory(subject, preferredCategory) {
+  const entries = window.__PIM_DATA__.wildberriesCommissions.filter((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(subject));
+  if (!entries.length) return { value: null, error: `не найден WB предмет "${subject}" в справочнике комиссий.` };
+  if (preferredCategory) {
+    const match = entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(preferredCategory));
+    if (match) return { value: match.category };
+    return { value: null, error: `WB предмет "${subject}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+  }
+  const categories = Array.from(new Set(entries.map((item) => item.category)));
+  if (categories.length === 1) return { value: categories[0] };
+  return { value: null, error: `WB предмет "${subject}" найден в нескольких категориях: ${categories.join(", ")}. Добавьте колонку "WB категория".` };
+}
+
+function resolveOzonCategory(productType, preferredCategory) {
+  const entries = window.__PIM_DATA__.ozonCommissions.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(productType));
+  if (!entries.length) return { value: null, error: `не найден Ozon тип товара "${productType}" в справочнике комиссий.` };
+  if (preferredCategory) {
+    const match = entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(preferredCategory));
+    if (match) return { value: match.category };
+    return { value: null, error: `Ozon тип товара "${productType}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+  }
+  const categories = Array.from(new Set(entries.filter((item) => !item.category.startsWith("Благотворительность")).map((item) => item.category)));
+  if (categories.length === 1) return { value: categories[0] };
+  return { value: null, error: `Ozon тип товара "${productType}" найден в нескольких категориях: ${categories.join(", ")}. Добавьте колонку "Ozon категория".` };
+}
+
+function stringCell(row, names) {
+  for (const name of names) {
+    const value = row[name];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return null;
+}
+
+function numberCell(row, names) {
+  const value = stringCell(row, names);
+  if (value == null) return null;
+  const numeric = Number(String(value).replace(",", ".").replace(/\s+/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+async function readZipEntries(buffer) {
+  const view = new DataView(buffer);
+  const eocdOffset = findEndOfCentralDirectory(view);
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  let offset = view.getUint32(eocdOffset + 16, true);
+  const entries = [];
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (view.getUint32(offset, true) !== 0x02014b50) throw new Error("Некорректная структура XLSX: не найден central directory.");
+    const method = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const fileNameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const name = new TextDecoder().decode(new Uint8Array(buffer, offset + 46, fileNameLength));
+    const localFileNameLength = view.getUint16(localHeaderOffset + 26, true);
+    const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+    const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+    const compressed = new Uint8Array(buffer, dataStart, compressedSize);
+    entries.push({ name, data: await decompressZipData(compressed, method) });
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+function findEndOfCentralDirectory(view) {
+  const minOffset = Math.max(0, view.byteLength - 66000);
+  for (let offset = view.byteLength - 22; offset >= minOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) return offset;
+  }
+  throw new Error("Не удалось прочитать XLSX: файл не похож на книгу Excel.");
+}
+
+async function decompressZipData(data, method) {
+  if (method === 0) return data;
+  if (method !== 8) throw new Error(`XLSX использует неподдерживаемый метод сжатия ZIP: ${method}.`);
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("Браузер не поддерживает чтение XLSX. Откройте прототип в актуальном Chrome или Edge.");
+  }
+  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function decodeXmlEntry(entryByName, name) {
+  const data = entryByName.get(name);
+  if (!data) throw new Error(`В XLSX не найден файл ${name}.`);
+  return new TextDecoder().decode(data);
+}
+
+function parseSharedStrings(data) {
+  if (!data) return [];
+  const doc = parseXml(new TextDecoder().decode(data));
+  return Array.from(doc.getElementsByTagNameNS("*", "si")).map((item) =>
+    Array.from(item.getElementsByTagNameNS("*", "t"))
+      .map((node) => node.textContent ?? "")
+      .join("")
+  );
+}
+
+function resolveWorksheetPath(workbookXml, workbookRelsXml) {
+  const workbookDoc = parseXml(workbookXml);
+  const relsDoc = parseXml(workbookRelsXml);
+  const sheets = Array.from(workbookDoc.getElementsByTagNameNS("*", "sheet"));
+  const sheet = sheets.find((item) => item.getAttribute("name") === "ВГХ") ?? sheets[0];
+  const relationId =
+    sheet?.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") ?? sheet?.getAttribute("r:id");
+  if (!relationId) throw new Error("В XLSX не найден рабочий лист с данными SKU.");
+  const relation = Array.from(relsDoc.getElementsByTagNameNS("*", "Relationship")).find((item) => item.getAttribute("Id") === relationId);
+  const target = relation?.getAttribute("Target");
+  if (!target) throw new Error("В XLSX не найден путь к рабочему листу с данными SKU.");
+  if (target.startsWith("/")) return target.slice(1);
+  return `xl/${target}`.replace(/\/[^/]+\/\.\.\//g, "/");
+}
+
+function parseSheetRows(sheetXml, sharedStrings) {
+  const doc = parseXml(sheetXml);
+  const cellsByRow = new Map();
+  Array.from(doc.getElementsByTagNameNS("*", "c")).forEach((cell) => {
+    const reference = cell.getAttribute("r");
+    if (!reference) return;
+    const { row, column } = cellReference(reference);
+    if (!cellsByRow.has(row)) cellsByRow.set(row, new Map());
+    cellsByRow.get(row).set(column, parseCellValue(cell, sharedStrings));
+  });
+  const headerRow = cellsByRow.get(2);
+  if (!headerRow) throw new Error("В Excel не найдена строка заголовков. Ожидаем заголовки во 2-й строке.");
+  const headers = new Map();
+  headerRow.forEach((value, column) => {
+    if (value != null && String(value).trim()) headers.set(column, String(value).trim());
+  });
+  const maxRow = Math.max(...Array.from(cellsByRow.keys()));
+  const rows = [];
+  for (let rowNumber = 3; rowNumber <= maxRow; rowNumber += 1) {
+    const source = cellsByRow.get(rowNumber) ?? new Map();
+    const row = {};
+    headers.forEach((header, column) => {
+      row[header] = source.get(column) ?? null;
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCellValue(cell, sharedStrings) {
+  const type = cell.getAttribute("t");
+  if (type === "s") {
+    const index = Number(cell.getElementsByTagNameNS("*", "v")[0]?.textContent ?? "");
+    return sharedStrings[index] ?? "";
+  }
+  if (type === "inlineStr") {
+    return Array.from(cell.getElementsByTagNameNS("*", "t"))
+      .map((node) => node.textContent ?? "")
+      .join("");
+  }
+  const raw = cell.getElementsByTagNameNS("*", "v")[0]?.textContent;
+  if (raw == null || raw === "") return null;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? numeric : raw;
+}
+
+function cellReference(reference) {
+  const match = /^([A-Z]+)(\d+)$/.exec(reference);
+  if (!match) throw new Error(`Некорректная ссылка на ячейку: ${reference}.`);
+  return { column: columnNameToNumber(match[1]), row: Number(match[2]) };
+}
+
+function columnNameToNumber(name) {
+  return name.split("").reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0);
+}
+
+function parseXml(xml) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("Не удалось прочитать XML внутри XLSX.");
+  return doc;
+}
+
+function createSkuImportTemplateBlob() {
+  const rows = [
+    ["Характеристики товаров"],
+    ["Наименование", "Цена с НДС", "Ссылка на товар WB", "Ссылка на товар OZON", "WB предмет", "Тип товара Ozon", "вес", "длина", "высота", "ширина", "штук на паллете"],
+    [
+      "Планетарный миксер",
+      15034,
+      "https://www.wildberries.ru/catalog/584775688/detail.aspx",
+      "https://www.ozon.ru/product/planetarnyy-mikser-elektricheskiy-kuhonnyy-4-v-1-kitfort-kt-4419-3044450223/",
+      "Миксеры",
+      "Миксер кухонный",
+      9.42,
+      30.8,
+      60,
+      39.6,
+      30
+    ]
+  ];
+  const entries = [
+    xmlEntry("[Content_Types].xml", contentTypesXml()),
+    xmlEntry("_rels/.rels", rootRelsXml()),
+    xmlEntry("xl/workbook.xml", workbookXml()),
+    xmlEntry("xl/_rels/workbook.xml.rels", workbookRelsXml()),
+    xmlEntry("xl/worksheets/sheet1.xml", worksheetXml(rows))
+  ];
+  return new Blob([writeZip(entries)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function xmlEntry(name, xml) {
+  return { name, data: new TextEncoder().encode(xml) };
+}
+
+function contentTypesXml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`;
+}
+
+function rootRelsXml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+}
+
+function workbookXml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="ВГХ" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`;
+}
+
+function workbookRelsXml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`;
+}
+
+function worksheetXml(rows) {
+  const rowXml = rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cells = row
+        .map((value, cellIndex) => {
+          const reference = `${columnNumberToName(2 + cellIndex)}${rowNumber}`;
+          if (typeof value === "number") return `<c r="${reference}"><v>${value}</v></c>`;
+          return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+        })
+        .join("");
+      return `<row r="${rowNumber}">${cells}</row>`;
+    })
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rowXml}</sheetData></worksheet>`;
+}
+
+function columnNumberToName(value) {
+  let name = "";
+  let current = value;
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    current = Math.floor((current - 1) / 26);
+  }
+  return name;
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function writeZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  entries.forEach((entry) => {
+    const name = new TextEncoder().encode(entry.name);
+    const crc = crc32(entry.data);
+    const localHeader = new Uint8Array(30 + name.length);
+    const local = new DataView(localHeader.buffer);
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, entry.data.length, true);
+    local.setUint32(22, entry.data.length, true);
+    local.setUint16(26, name.length, true);
+    localHeader.set(name, 30);
+    localParts.push(localHeader, entry.data);
+    const centralHeader = new Uint8Array(46 + name.length);
+    const central = new DataView(centralHeader.buffer);
+    central.setUint32(0, 0x02014b50, true);
+    central.setUint16(4, 20, true);
+    central.setUint16(6, 20, true);
+    central.setUint16(8, 0x0800, true);
+    central.setUint32(16, crc, true);
+    central.setUint32(20, entry.data.length, true);
+    central.setUint32(24, entry.data.length, true);
+    central.setUint16(28, name.length, true);
+    central.setUint32(42, offset, true);
+    centralHeader.set(name, 46);
+    centralParts.push(centralHeader);
+    offset += localHeader.length + entry.data.length;
+  });
+  const centralDirectoryOffset = offset;
+  const centralDirectory = concatBytes(centralParts);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  endView.setUint32(0, 0x06054b50, true);
+  endView.setUint16(8, entries.length, true);
+  endView.setUint16(10, entries.length, true);
+  endView.setUint32(12, centralDirectory.length, true);
+  endView.setUint32(16, centralDirectoryOffset, true);
+  return concatBytes([...localParts, centralDirectory, end]);
+}
+
+function concatBytes(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  parts.forEach((part) => {
+    output.set(part, offset);
+    offset += part.length;
+  });
+  return output;
+}
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (const byte of data) crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff];
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  return crc >>> 0;
+});
 
 function initOriginCityCombobox() {
   const input = $("origin-city");
@@ -344,11 +829,9 @@ function render() {
 
 function syncMarkupInputs() {
   const bases = markupReferenceBases();
-  const warehouseBase = referenceWarehouseGroupBases();
   $("first-mile-base-label").textContent = formatRub(bases.firstMilePalletRub);
   syncInputValue("first-mile-markup-percent", settings.firstMileMarkupPercent);
   syncInputValue("first-mile-markup-rub", formatMoneyInput(bases.firstMilePalletRub * (settings.firstMileMarkupPercent / 100)));
-  renderWarehouseMarkupLines(warehouseBase);
   syncMiddleMileMarkupRows();
   $("middle-mile-first-liter-base-label").textContent = formatRub(bases.middleMileFirstLiterRub);
   syncInputValue("middle-mile-first-liter-markup-percent", settings.middleMileFirstLiterMarkupPercent);
@@ -377,40 +860,6 @@ function syncMarkupInputs() {
 function syncInputValue(id, value) {
   if (document.activeElement?.id === id) return;
   $(id).value = value;
-}
-
-function renderWarehouseMarkupLines(bases) {
-  $("warehouse-markup-lines").innerHTML = warehouseGroupOrder
-    .filter((group) => settings.warehouseOperationGroups[group])
-    .map((group) => {
-      const percent = settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent;
-      const baseRub = bases[group] ?? 0;
-      return `
-        <div class="markup-line">
-          <span>${escapeHtml(warehouseGroupDetails[group].label)}</span>
-          <strong>${formatRub(baseRub)}</strong>
-          <label><input data-warehouse-group="${group}" aria-label="${escapeHtml(warehouseGroupDetails[group].label)}: процент наценки" min="0" step="1" type="number" value="${percent}" /></label>
-          <label><input data-warehouse-group-rub="${group}" aria-label="${escapeHtml(warehouseGroupDetails[group].label)}: наценка, ₽" min="0" step="0.01" type="number" value="${formatMoneyInput(baseRub * (percent / 100))}" /></label>
-        </div>
-      `;
-    })
-    .join("");
-
-  document.querySelectorAll("[data-warehouse-group]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      const group = event.target.dataset.warehouseGroup;
-      settings.warehouseOperationMarkupPercents[group] = parseInputNumber(event.target.value);
-      renderResults();
-    });
-  });
-  document.querySelectorAll("[data-warehouse-group-rub]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      const group = event.target.dataset.warehouseGroupRub;
-      const baseRub = referenceWarehouseGroupBases()[group] ?? 0;
-      settings.warehouseOperationMarkupPercents[group] = baseRub > 0 ? percentInput((parseInputNumber(event.target.value) / baseRub) * 100) : 0;
-      renderResults();
-    });
-  });
 }
 
 function markupReferenceBases() {
@@ -466,19 +915,6 @@ function middleMileMarkupRowIds() {
 
   if (!ids.length) add("middle-mile-first-liter-row");
   return ids;
-}
-
-function referenceWarehouseGroupBases() {
-  const bases = Object.fromEntries(warehouseGroupOrder.map((group) => [group, 0]));
-  const firstSku = skus[0];
-  if (!firstSku) return bases;
-  const fbs = calculateAllSchemes(firstSku).wildberries.fbs;
-  fbs.breakdown.forEach((item) => {
-    if (item.pimProfitCenter !== "warehouse" || !item.pimWarehouseGroup) return;
-    const costWithoutVat = item.pimCostWithoutVatRub ?? item.amountWithoutVatRub;
-    bases[item.pimWarehouseGroup] += settings.vatDisplayMode === "with_vat" ? costWithoutVat * (1 + VAT_RATE) : costWithoutVat;
-  });
-  return Object.fromEntries(Object.entries(bases).map(([group, value]) => [group, money(value)]));
 }
 
 function openWarehousePriceList() {
@@ -854,10 +1290,22 @@ function renderSkuEditor() {
     .map(
       (sku) => `
         <tr>
-          <td><input data-id="${sku.id}" data-field="name" value="${escapeHtml(sku.name)}"></td>
+          <td><input data-id="${sku.id}" data-field="name" title="${escapeHtml(sku.name)}" value="${escapeHtml(sku.name)}"></td>
           <td><input data-id="${sku.id}" data-field="price" type="number" min="0" step="0.01" value="${sku.price}"></td>
-          <td><input data-id="${sku.id}" data-field="wbSubject" list="wb-subjects" value="${escapeHtml(sku.wbSubject)}"></td>
-          <td><input data-id="${sku.id}" data-field="ozonProductType" list="ozon-product-types" value="${escapeHtml(sku.ozonProductType)}"></td>
+          <td><input data-id="${sku.id}" data-field="wbCategory" list="wb-categories" title="${escapeHtml(sku.wbCategory)}" value="${escapeHtml(sku.wbCategory)}"></td>
+          <td>
+            <input data-id="${sku.id}" data-field="wbSubject" list="wb-subjects-${escapeHtml(sku.id)}" title="${escapeHtml(sku.wbSubject)}" value="${escapeHtml(sku.wbSubject)}">
+            <datalist id="wb-subjects-${escapeHtml(sku.id)}">
+              ${lookupDatalistValues(subjectsForWbCategory(sku.wbCategory)).map((subject) => `<option value="${escapeHtml(subject)}"></option>`).join("")}
+            </datalist>
+          </td>
+          <td><input data-id="${sku.id}" data-field="ozonCategory" list="ozon-categories" title="${escapeHtml(sku.ozonCategory)}" value="${escapeHtml(sku.ozonCategory)}"></td>
+          <td>
+            <input data-id="${sku.id}" data-field="ozonProductType" list="ozon-product-types-${escapeHtml(sku.id)}" title="${escapeHtml(sku.ozonProductType)}" value="${escapeHtml(sku.ozonProductType)}">
+            <datalist id="ozon-product-types-${escapeHtml(sku.id)}">
+              ${lookupDatalistValues(productTypesForOzonCategory(sku.ozonCategory)).map((type) => `<option value="${escapeHtml(type)}"></option>`).join("")}
+            </datalist>
+          </td>
           <td><input data-id="${sku.id}" data-field="weightKg" type="number" min="0" step="0.01" value="${sku.weightKg}"></td>
           <td><input data-id="${sku.id}" data-field="lengthCm" type="number" min="0" step="0.01" value="${sku.lengthCm}"></td>
           <td><input data-id="${sku.id}" data-field="widthCm" type="number" min="0" step="0.01" value="${sku.widthCm}"></td>
@@ -874,7 +1322,46 @@ function renderSkuEditor() {
       const { id, field } = event.target.dataset;
       const sku = skus.find((item) => item.id === id);
       if (!sku) return;
-      sku[field] = event.target.type === "number" ? Number(event.target.value) || 0 : event.target.value;
+      let value = event.target.type === "number" ? Number(event.target.value) || 0 : event.target.value;
+      if (field === "wbCategory") value = canonicalLookupValue(value, window.__PIM_DATA__.wbCategories);
+      if (field === "wbSubject") value = canonicalLookupValue(value, subjectsForWbCategory(sku.wbCategory));
+      if (field === "ozonCategory") value = canonicalLookupValue(value, window.__PIM_DATA__.ozonCategories);
+      if (field === "ozonProductType") value = canonicalLookupValue(value, productTypesForOzonCategory(sku.ozonCategory));
+      sku[field] = value;
+      if (field === "wbSubject") sku.wbCategory = categoryForWbSubject(value, sku.wbCategory) ?? sku.wbCategory;
+      if (field === "ozonProductType") sku.ozonCategory = categoryForOzonProductType(value, sku.ozonCategory) ?? sku.ozonCategory;
+      event.target.title = String(value);
+      syncMarkupInputs();
+      renderResults();
+    });
+
+    input.addEventListener("change", (event) => {
+      const { id, field } = event.target.dataset;
+      const sku = skus.find((item) => item.id === id);
+      if (!sku) return;
+      let value = event.target.type === "number" ? Number(event.target.value) || 0 : event.target.value;
+      if (field === "wbCategory") value = canonicalLookupValue(value, window.__PIM_DATA__.wbCategories);
+      if (field === "wbSubject") value = canonicalLookupValue(value, subjectsForWbCategory(sku.wbCategory));
+      if (field === "ozonCategory") value = canonicalLookupValue(value, window.__PIM_DATA__.ozonCategories);
+      if (field === "ozonProductType") value = canonicalLookupValue(value, productTypesForOzonCategory(sku.ozonCategory));
+      sku[field] = value;
+      if (field === "wbCategory") {
+        const categorySubjects = subjectsForWbCategory(value);
+        if (!hasLookupValue(categorySubjects, sku.wbSubject)) sku.wbSubject = "";
+        else sku.wbSubject = canonicalLookupValue(sku.wbSubject, categorySubjects);
+        renderSkuEditor();
+      } else if (field === "wbSubject") {
+        sku.wbCategory = categoryForWbSubject(value, sku.wbCategory) ?? sku.wbCategory;
+        renderSkuEditor();
+      } else if (field === "ozonCategory") {
+        const categoryTypes = productTypesForOzonCategory(value);
+        if (!hasLookupValue(categoryTypes, sku.ozonProductType)) sku.ozonProductType = "";
+        else sku.ozonProductType = canonicalLookupValue(sku.ozonProductType, categoryTypes);
+        renderSkuEditor();
+      } else if (field === "ozonProductType") {
+        sku.ozonCategory = categoryForOzonProductType(value, sku.ozonCategory) ?? sku.ozonCategory;
+        renderSkuEditor();
+      }
       syncMarkupInputs();
       renderResults();
     });
@@ -887,6 +1374,53 @@ function renderSkuEditor() {
       render();
     });
   });
+}
+
+function canonicalLookupValue(value, options) {
+  const normalized = normalizeLookupValue(String(value));
+  return options.find((option) => normalizeLookupValue(option) === normalized) ?? value;
+}
+
+function hasLookupValue(options, value) {
+  const normalized = normalizeLookupValue(String(value));
+  return options.some((option) => normalizeLookupValue(option) === normalized);
+}
+
+function lookupDatalistValues(options) {
+  return Array.from(
+    new Set(
+      options.flatMap((option) => {
+        const lowerOption = normalizeLookupValue(option);
+        return lowerOption === option ? [option] : [option, lowerOption];
+      })
+    )
+  );
+}
+
+function normalizeLookupValue(value) {
+  return String(value).trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+}
+
+function subjectsForWbCategory(category) {
+  const exactCategory = canonicalLookupValue(category, window.__PIM_DATA__.wbCategories);
+  return window.__PIM_DATA__.wbSubjectsByCategory?.[exactCategory] ?? window.__PIM_DATA__.wbSubjects;
+}
+
+function categoryForWbSubject(subject, currentCategory) {
+  const entries = window.__PIM_DATA__.wildberriesCommissions.filter((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(subject));
+  if (!entries.length) return null;
+  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
+}
+
+function productTypesForOzonCategory(category) {
+  const exactCategory = canonicalLookupValue(category, window.__PIM_DATA__.ozonCategories);
+  return window.__PIM_DATA__.ozonProductTypesByCategory?.[exactCategory] ?? window.__PIM_DATA__.ozonProductTypes;
+}
+
+function categoryForOzonProductType(productType, currentCategory) {
+  const entries = window.__PIM_DATA__.ozonCommissions.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(productType));
+  if (!entries.length) return null;
+  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
 }
 
 function renderResults() {
@@ -970,6 +1504,7 @@ function dimensionBadgeHtml(classes) {
 
 function resultCell(result, bestByMarketplace) {
   const isBest = bestByMarketplace.some((best) => result.marketplace === best.marketplace && result.scheme === best.scheme);
+  const displayBreakdown = breakdownItemsForDisplay(result);
   return `
     <td class="result-cell ${isBest ? "best" : ""} ${result.isComplete ? "" : "incomplete"}">
       <div class="result-main">
@@ -984,7 +1519,7 @@ function resultCell(result, bestByMarketplace) {
       <details>
         <summary>Статьи</summary>
         <ul class="breakdown-list">
-          ${result.breakdown
+          ${displayBreakdown
             .map(
               (item) =>
                 `<li><span class="breakdown-label"><span class="breakdown-title"><span class="breakdown-name">${escapeHtml(item.label)}</span></span><small>${escapeHtml(item.vatNote)}</small>${item.internalNote ? `<small>${escapeHtml(item.internalNote)}</small>` : ""}</span><span class="breakdown-value">${breakdownHelpHtml(item)}<strong>${formatRub(item.amountRub)}</strong></span></li>`
@@ -994,6 +1529,64 @@ function resultCell(result, bestByMarketplace) {
       </details>
     </td>
   `;
+}
+
+function breakdownItemsForDisplay(result) {
+  const warehouseItems = result.breakdown.filter((item) => item.pimProfitCenter === "warehouse");
+  const itemByKey = new Map(result.breakdown.filter((item) => item.pimProfitCenter !== "warehouse").map((item) => [item.key, item]));
+  const warehouseOperations = warehouseItems.length ? aggregateWarehouseOperations(warehouseItems) : null;
+  const usedKeys = new Set();
+  const orderedItems = displayBreakdownOrder[result.marketplace][result.scheme]
+    .map((key) => {
+      if (key === WAREHOUSE_OPERATIONS_DISPLAY_KEY) return warehouseOperations;
+      const item = itemByKey.get(key);
+      if (item) usedKeys.add(key);
+      return item ? withDisplayLabel(item) : null;
+    })
+    .filter(Boolean);
+  const restItems = result.breakdown
+    .filter((item) => item.pimProfitCenter !== "warehouse" && !usedKeys.has(item.key))
+    .map(withDisplayLabel);
+  return [...orderedItems, ...restItems];
+}
+
+function withDisplayLabel(item) {
+  return displayLabels[item.key] ? { ...item, label: displayLabels[item.key] } : item;
+}
+
+function aggregateWarehouseOperations(items) {
+  const firstItem = items[0];
+  const amountRub = money(sumBreakdown(items, "amountRub"));
+  const amountWithoutVatRub = money(sumBreakdown(items, "amountWithoutVatRub"));
+  const amountWithVatRub = money(sumBreakdown(items, "amountWithVatRub"));
+  const pimCostWithoutVatRub = money(items.reduce((sum, item) => sum + (item.pimCostWithoutVatRub ?? item.amountWithoutVatRub), 0));
+  const pimProfitWithoutVatRub = money(sumBreakdownOptional(items, "pimProfitWithoutVatRub"));
+  const pimProfitWithVatRub = money(sumBreakdownOptional(items, "pimProfitWithVatRub"));
+  const operationDetails = items.map((item) => `${item.label}: ${formatNumber(item.amountRub)} ₽`).join("; ");
+
+  return {
+    ...firstItem,
+    key: WAREHOUSE_OPERATIONS_DISPLAY_KEY,
+    label: "Операции PIM.Seller",
+    amountRub,
+    amountWithoutVatRub,
+    amountWithVatRub,
+    calculationNote: `Состав статьи: ${operationDetails}. Итого: ${formatNumber(amountRub)} ₽ ${firstItem.vatNote}.`,
+    internalNote: undefined,
+    pimWarehouseGroup: undefined,
+    pimWarehouseOperationKey: undefined,
+    pimCostWithoutVatRub,
+    pimProfitWithoutVatRub,
+    pimProfitWithVatRub
+  };
+}
+
+function sumBreakdown(items, key) {
+  return items.reduce((sum, item) => sum + item[key], 0);
+}
+
+function sumBreakdownOptional(items, key) {
+  return items.reduce((sum, item) => sum + (item[key] ?? 0), 0);
 }
 
 function breakdownHelpHtml(item) {
@@ -1014,33 +1607,25 @@ function renderAdminMargin(rows) {
   $("admin-margin-vat-label").textContent = `${settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС"}, по центрам прибыли`;
   $("admin-margin-body").innerHTML = rows
     .flatMap(({ sku, result }) => {
-      const marketplaces = ["wildberries", "ozon"];
-      return marketplaces.flatMap((marketplace, marketplaceIndex) =>
-        ["fbs", "dbs"].map((scheme, schemeIndex) => {
-          const summary = summarizePimMargin(result[marketplace][scheme]);
-          return `
-            <tr>
-              ${
-                marketplaceIndex === 0 && schemeIndex === 0
-                  ? `<td class="admin-group-cell sku-cell" rowspan="4">${escapeHtml(sku.name)}</td>`
-                  : ""
-              }
-              ${schemeIndex === 0 ? `<td class="admin-group-cell marketplace-cell" rowspan="2">${marketplaceLabel(marketplace)}</td>` : ""}
-              <td class="admin-scheme-cell">${scheme.toUpperCase()}</td>
-              <td class="admin-value admin-cost-cell">${formatRub(summary.firstMile.total)}</td>
-              <td class="admin-value admin-margin-cell">${formatRub(summary.firstMile.margin)}</td>
-              <td class="admin-value admin-cost-cell">${formatRub(summary.warehouse.total)}</td>
-              <td class="admin-value admin-margin-cell">${formatRub(summary.warehouse.margin)}</td>
-              <td class="admin-value admin-cost-cell">${formatRub(summary.middleMile.total)}</td>
-              <td class="admin-value admin-margin-cell">${formatRub(summary.middleMile.margin)}</td>
-              <td class="admin-value admin-cost-cell">${formatRub(summary.lastMile.total)}</td>
-              <td class="admin-value admin-margin-cell">${formatRub(summary.lastMile.margin)}</td>
-              <td class="admin-value admin-cost-cell admin-total-cell"><strong>${formatRub(summary.total.total)}</strong></td>
-              <td class="admin-value admin-margin-cell admin-total-cell"><strong>${formatRub(summary.total.margin)}</strong></td>
-            </tr>
-          `;
-        })
-      );
+      return ["fbs", "dbs"].map((scheme, schemeIndex) => {
+        const summary = summarizePimMargin(result.wildberries[scheme]);
+        return `
+          <tr>
+            ${schemeIndex === 0 ? `<td class="admin-group-cell sku-cell" rowspan="2">${escapeHtml(sku.name)}</td>` : ""}
+            <td class="admin-scheme-cell">${scheme.toUpperCase()}</td>
+            <td class="admin-value admin-cost-cell">${formatRub(summary.firstMile.total)}</td>
+            <td class="admin-value admin-margin-cell">${formatRub(summary.firstMile.margin)}</td>
+            <td class="admin-value admin-cost-cell">${formatRub(summary.warehouse.total)}</td>
+            <td class="admin-value admin-margin-cell">${formatRub(summary.warehouse.margin)}</td>
+            <td class="admin-value admin-cost-cell">${formatRub(summary.middleMile.total)}</td>
+            <td class="admin-value admin-margin-cell">${formatRub(summary.middleMile.margin)}</td>
+            <td class="admin-value admin-cost-cell">${formatRub(summary.lastMile.total)}</td>
+            <td class="admin-value admin-margin-cell">${formatRub(summary.lastMile.margin)}</td>
+            <td class="admin-value admin-cost-cell admin-total-cell"><strong>${formatRub(summary.total.total)}</strong></td>
+            <td class="admin-value admin-margin-cell admin-total-cell"><strong>${formatRub(summary.total.margin)}</strong></td>
+          </tr>
+        `;
+      });
     })
     .join("");
 }
@@ -1328,8 +1913,8 @@ function skuMetrics(sku) {
 function commissionCost(marketplace, scheme, sku) {
   if (marketplace === "wildberries") {
     const entry =
-      window.__PIM_DATA__.wildberriesCommissions.find((item) => item.subject === sku.wbSubject) ??
-      window.__PIM_DATA__.wildberriesCommissions.find((item) => item.category === sku.wbCategory);
+      window.__PIM_DATA__.wildberriesCommissions.find((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(sku.wbSubject)) ??
+      window.__PIM_DATA__.wildberriesCommissions.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.wbCategory));
     if (!entry) return null;
     const rate = entry.commission[scheme];
     return commissionWithDiscount(sku.price, rate, marketplace, scheme, sku);
@@ -1381,15 +1966,17 @@ function applyCommissionDiscount(rate, discount) {
 }
 
 function findOzonCommissionEntry(sku) {
-  const byProductType = window.__PIM_DATA__.ozonCommissions.filter((item) => item.productType === sku.ozonProductType);
+  const byProductType = window.__PIM_DATA__.ozonCommissions.filter(
+    (item) => normalizeLookupValue(item.productType) === normalizeLookupValue(sku.ozonProductType)
+  );
   if (byProductType.length) {
     return (
-      byProductType.find((item) => item.category === sku.ozonCategory) ??
+      byProductType.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.ozonCategory)) ??
       byProductType.find((item) => !item.category.startsWith("Благотворительность")) ??
       byProductType[0]
     );
   }
-  return window.__PIM_DATA__.ozonCommissions.find((item) => item.category === sku.ozonCategory) ?? null;
+  return window.__PIM_DATA__.ozonCommissions.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.ozonCategory)) ?? null;
 }
 
 function formatRate(rate) {
@@ -1928,15 +2515,15 @@ function ozonFboStorageCost(sku, volumeLiters, storageDays, logistics) {
 }
 
 function findOzonStorageFreeDays(sku, entries) {
-  const byProductType = entries.filter((item) => item.productType === sku.ozonProductType);
+  const byProductType = entries.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(sku.ozonProductType));
   if (byProductType.length) {
     return (
-      byProductType.find((item) => item.category === sku.ozonCategory) ??
+      byProductType.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.ozonCategory)) ??
       byProductType.find((item) => !item.category.startsWith("Благотворительность")) ??
       byProductType[0]
     );
   }
-  return entries.find((item) => item.category === sku.ozonCategory) ?? null;
+  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.ozonCategory)) ?? null;
 }
 
 function middleMileCostParts(sku) {

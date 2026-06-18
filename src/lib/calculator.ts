@@ -24,6 +24,34 @@ import type {
 const SCHEMES: Scheme[] = ["fbo", "fbs", "dbs"];
 const VAT_RATE = 0.22;
 const WB_FAST_HANDOVER_DISCOUNT = 0.015;
+const WAREHOUSE_OPERATIONS_DISPLAY_KEY = "warehouseOperations";
+const DISPLAY_BREAKDOWN_ORDER: Record<Marketplace, Record<Scheme, string[]>> = {
+  wildberries: {
+    fbo: ["firstMile", "commission", "wbAcceptance", "wbStorage", "wbLastMile"],
+    fbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "middleMile", "wbFbsLastMile"],
+    dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
+  },
+  ozon: {
+    fbo: ["firstMile", "commission", "ozonFboNonlocalMarkup", "ozonFboStorage", "ozonFboLogisticsTariff", "ozonPickupPoint"],
+    fbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "middleMile", "ozonFbsAcceptance", "ozonFbsLogistics", "ozonPickupPoint"],
+    dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
+  }
+};
+const DISPLAY_LABELS: Record<string, string> = {
+  firstMile: "Первая миля",
+  middleMile: "Средняя миля",
+  lastMile: "Последняя миля",
+  wbAcceptance: "Приёмка WB",
+  wbStorage: "Хранение WB",
+  wbLastMile: "Логистика WB до покупателя",
+  wbFbsLastMile: "Логистика WB FBS",
+  ozonFboLogisticsTariff: "Логистика Ozon",
+  ozonFboNonlocalMarkup: "Наценка за нелокальную продажу",
+  ozonFboStorage: "Хранение Ozon",
+  ozonPickupPoint: "Доставка до ПВЗ",
+  ozonFbsAcceptance: "Приёмка отправления",
+  ozonFbsLogistics: "Логистика Ozon"
+};
 
 type DraftBreakdownItem = Omit<CostBreakdownItem, "amountWithoutVatRub" | "amountWithVatRub" | "vatNote">;
 type CommissionDiscount = { value: number };
@@ -108,6 +136,67 @@ export function findBestResult(result: CalculationResult): SchemeResult {
   const complete = flattenResults(result).filter((item) => item.isComplete);
   const comparable = complete.length ? complete : flattenResults(result);
   return comparable.reduce((best, current) => (current.totalRub < best.totalRub ? current : best));
+}
+
+export function breakdownItemsForDisplay(result: SchemeResult): CostBreakdownItem[] {
+  const warehouseItems = result.breakdown.filter((item) => item.pimProfitCenter === "warehouse");
+  const itemByKey = new Map(result.breakdown.filter((item) => item.pimProfitCenter !== "warehouse").map((item) => [item.key, item]));
+  const warehouseOperations = warehouseItems.length ? aggregateWarehouseOperations(warehouseItems) : null;
+  const usedKeys = new Set<string>();
+
+  const orderedItems = DISPLAY_BREAKDOWN_ORDER[result.marketplace][result.scheme]
+    .map((key) => {
+      if (key === WAREHOUSE_OPERATIONS_DISPLAY_KEY) return warehouseOperations;
+      const item = itemByKey.get(key);
+      if (item) usedKeys.add(key);
+      return item ? withDisplayLabel(item) : null;
+    })
+    .filter((item): item is CostBreakdownItem => item != null);
+
+  const restItems = result.breakdown
+    .filter((item) => item.pimProfitCenter !== "warehouse" && !usedKeys.has(item.key))
+    .map(withDisplayLabel);
+
+  return [...orderedItems, ...restItems];
+}
+
+function withDisplayLabel(item: CostBreakdownItem): CostBreakdownItem {
+  return DISPLAY_LABELS[item.key] ? { ...item, label: DISPLAY_LABELS[item.key] } : item;
+}
+
+function aggregateWarehouseOperations(items: CostBreakdownItem[]): CostBreakdownItem {
+  const firstItem = items[0];
+  const amountRub = money(sumBreakdown(items, "amountRub"));
+  const amountWithoutVatRub = money(sumBreakdown(items, "amountWithoutVatRub"));
+  const amountWithVatRub = money(sumBreakdown(items, "amountWithVatRub"));
+  const pimCostWithoutVatRub = money(items.reduce((sum, item) => sum + (item.pimCostWithoutVatRub ?? item.amountWithoutVatRub), 0));
+  const pimProfitWithoutVatRub = money(sumBreakdownOptional(items, "pimProfitWithoutVatRub"));
+  const pimProfitWithVatRub = money(sumBreakdownOptional(items, "pimProfitWithVatRub"));
+  const operationDetails = items.map((item) => `${item.label}: ${formatDecimal(item.amountRub)} ₽`).join("; ");
+
+  return {
+    ...firstItem,
+    key: WAREHOUSE_OPERATIONS_DISPLAY_KEY,
+    label: "Операции PIM.Seller",
+    amountRub,
+    amountWithoutVatRub,
+    amountWithVatRub,
+    calculationNote: `Состав статьи: ${operationDetails}. Итого: ${formatDecimal(amountRub)} ₽ ${firstItem.vatNote}.`,
+    internalNote: undefined,
+    pimWarehouseGroup: undefined,
+    pimWarehouseOperationKey: undefined,
+    pimCostWithoutVatRub,
+    pimProfitWithoutVatRub,
+    pimProfitWithVatRub
+  };
+}
+
+function sumBreakdown(items: CostBreakdownItem[], key: "amountRub" | "amountWithoutVatRub" | "amountWithVatRub"): number {
+  return items.reduce((sum, item) => sum + item[key], 0);
+}
+
+function sumBreakdownOptional(items: CostBreakdownItem[], key: "pimProfitWithoutVatRub" | "pimProfitWithVatRub"): number {
+  return items.reduce((sum, item) => sum + (item[key] ?? 0), 0);
 }
 
 function calculateMarketplaceScheme(
@@ -433,9 +522,9 @@ function commissionCalculationNote(commission: CommissionCost): string {
 }
 
 export function findWbCommission(sku: Pick<SkuInput, "wbSubject" | "wbCategory">, entries: WbCommissionEntry[]): Record<Scheme, number> | null {
-  const bySubject = entries.find((entry) => entry.subject === sku.wbSubject);
+  const bySubject = entries.find((entry) => sameLookupText(entry.subject, sku.wbSubject));
   if (bySubject) return bySubject.commission;
-  const byCategory = entries.find((entry) => entry.category === sku.wbCategory);
+  const byCategory = entries.find((entry) => sameLookupText(entry.category, sku.wbCategory));
   if (byCategory) return byCategory.commission;
   return null;
 }
@@ -456,15 +545,23 @@ function findOzonCommissionEntry(
   sku: Pick<SkuInput, "ozonProductType" | "ozonCategory">,
   entries: OzonCommissionEntry[]
 ): OzonCommissionEntry | null {
-  const byProductType = entries.filter((item) => item.productType === sku.ozonProductType);
+  const byProductType = entries.filter((item) => sameLookupText(item.productType, sku.ozonProductType));
   if (byProductType.length) {
     return (
-      byProductType.find((item) => item.category === sku.ozonCategory) ??
+      byProductType.find((item) => sameLookupText(item.category, sku.ozonCategory)) ??
       byProductType.find((item) => !item.category.startsWith("Благотворительность")) ??
       byProductType[0]
     );
   }
-  return entries.find((item) => item.category === sku.ozonCategory) ?? null;
+  return entries.find((item) => sameLookupText(item.category, sku.ozonCategory)) ?? null;
+}
+
+function sameLookupText(left: string, right: string): boolean {
+  return normalizeLookupText(left) === normalizeLookupText(right);
+}
+
+function normalizeLookupText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
 }
 
 function priceBandKey(price: number, scheme: Scheme): string {
@@ -1186,15 +1283,15 @@ function findOzonStorageFreeDays(
   sku: Pick<SkuInput, "ozonProductType" | "ozonCategory">,
   entries: NonNullable<LogisticsAssumptions["ozonLogistics"]["storageFreeDays"]>
 ): NonNullable<LogisticsAssumptions["ozonLogistics"]["storageFreeDays"]>[number] | null {
-  const byProductType = entries.filter((item) => item.productType === sku.ozonProductType);
+  const byProductType = entries.filter((item) => sameLookupText(item.productType, sku.ozonProductType));
   if (byProductType.length) {
     return (
-      byProductType.find((item) => item.category === sku.ozonCategory) ??
+      byProductType.find((item) => sameLookupText(item.category, sku.ozonCategory)) ??
       byProductType.find((item) => !item.category.startsWith("Благотворительность")) ??
       byProductType[0]
     );
   }
-  return entries.find((item) => item.category === sku.ozonCategory) ?? null;
+  return entries.find((item) => sameLookupText(item.category, sku.ozonCategory)) ?? null;
 }
 
 function middleMileCostParts(sku: SkuInput, middleMile: MiddleMileTariffs): MiddleMileCostParts {

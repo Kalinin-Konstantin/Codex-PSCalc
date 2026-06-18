@@ -136,8 +136,22 @@ export function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "ru"));
 }
 
+export const wbCategories = uniqueSorted(tariffData.wildberriesCommissions.map((item) => item.category));
 export const wbSubjects = uniqueSorted(tariffData.wildberriesCommissions.map((item) => item.subject));
+export const wbSubjectsByCategory = Object.fromEntries(
+  wbCategories.map((category) => [
+    category,
+    uniqueSorted(tariffData.wildberriesCommissions.filter((item) => item.category === category).map((item) => item.subject))
+  ])
+) as Record<string, string[]>;
+export const ozonCategories = uniqueSorted(tariffData.ozonCommissions.map((item) => item.category));
 export const ozonProductTypes = uniqueSorted(tariffData.ozonCommissions.map((item) => item.productType));
+export const ozonProductTypesByCategory = Object.fromEntries(
+  ozonCategories.map((category) => [
+    category,
+    uniqueSorted(tariffData.ozonCommissions.filter((item) => item.category === category).map((item) => item.productType))
+  ])
+) as Record<string, string[]>;
 export const originCities = routeCities.originCities;
 export const destinationCities = routeCities.destinationCities;
 export const ozonDeliveryClusters = tariffData.logistics.ozonLogistics.deliveryClusters;

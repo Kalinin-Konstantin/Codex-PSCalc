@@ -148,15 +148,39 @@
       <section>
         <div class="section-heading">
           <h2>SKU</h2>
-          <button id="add-sku" type="button">Добавить SKU</button>
+          <div class="section-actions">
+            <label class="file-button">
+              <input id="sku-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <span>Загрузить Excel</span>
+            </label>
+            <a id="download-sku-template" class="link-button subtle" href="./sku-import-template.xlsx" download="Шаблон загрузки SKU PIM.Seller.xlsx">Скачать образец</a>
+            <button id="add-sku" type="button">Добавить SKU</button>
+          </div>
         </div>
+        <p id="sku-import-status" class="import-status" hidden></p>
         <div class="sku-table-wrap">
           <table class="sku-table">
+            <colgroup>
+              <col class="sku-col-name">
+              <col class="sku-col-price">
+              <col class="sku-col-wb-category">
+              <col class="sku-col-wb-subject">
+              <col class="sku-col-ozon-category">
+              <col class="sku-col-ozon-type">
+              <col class="sku-col-weight">
+              <col class="sku-col-length">
+              <col class="sku-col-width">
+              <col class="sku-col-height">
+              <col class="sku-col-pallet">
+              <col class="sku-col-action">
+            </colgroup>
             <thead>
               <tr>
                 <th>Название</th>
                 <th>Цена с НДС</th>
                 <th>WB категория</th>
+                <th>WB предмет</th>
+                <th>Ozon категория</th>
                 <th>Ozon тип товара</th>
                 <th>Вес</th>
                 <th>Длина</th>
@@ -234,17 +258,8 @@
                 <strong>Складские операции</strong>
                 <div class="markup-card-actions">
                   <button class="link-button" id="warehouse-price-list-open" type="button">Прайс-лист</button>
-                  <div class="help">
-                    <button type="button" class="help-trigger" aria-label="Что входит в складские операции?">?</button>
-                    <div class="help-card" role="tooltip">
-                      <strong>Складские операции</strong>
-                      <p>Операции PIM.Seller на складе: приёмка, хранение, комплектация и отгрузка. Наценка применяется к соответствующим складским статьям в FBS и DBS.</p>
-                    </div>
-                  </div>
                 </div>
               </div>
-              <div class="markup-head" aria-hidden="true"><span></span><span>Тариф</span><span>%</span><span>Наценка</span></div>
-              <div class="markup-lines" id="warehouse-markup-lines"></div>
             </section>
             <section class="markup-card">
               <div class="markup-card-title">
@@ -329,7 +344,6 @@
             <table class="admin-table">
               <colgroup>
                 <col class="admin-col-sku">
-                <col class="admin-col-marketplace">
                 <col class="admin-col-scheme">
                 <col class="admin-col-cost">
                 <col class="admin-col-margin">
@@ -345,7 +359,6 @@
               <thead>
                 <tr>
                   <th class="admin-dimension-head" rowspan="2">SKU</th>
-                  <th class="admin-dimension-head" rowspan="2">Маркетплейс</th>
                   <th class="admin-dimension-head admin-scheme-head" rowspan="2">Схема</th>
                   <th class="admin-profit-group" colspan="2">Первая миля</th>
                   <th class="admin-profit-group" colspan="2">Складские операции</th>
@@ -372,8 +385,8 @@
         </div>
       </aside>
     </main>
-    <datalist id="wb-subjects"></datalist>
-    <datalist id="ozon-product-types"></datalist>
+    <datalist id="wb-categories"></datalist>
+    <datalist id="ozon-categories"></datalist>
     <script src="./data.js"></script>
     <script src="./app.js"></script>
   </body>

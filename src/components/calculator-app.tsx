@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  breakdownItemsForDisplay,
   calculateAllSchemes,
   calculateSkuMetrics,
   classifySkuDimensions,
@@ -16,12 +17,17 @@ import {
   defaultSkus,
   destinationCities,
   originCities,
+  ozonCategories,
   ozonDeliveryClusters,
   ozonProductTypes,
+  ozonProductTypesByCategory,
   tariffData,
+  wbCategories,
   wbWarehousesForDestination,
   wbSubjects,
+  wbSubjectsByCategory,
 } from "../lib/tariffs";
+import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, WarehouseOperationGroup } from "../lib/types";
 
 type NumericSkuField = "price" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "itemsPerPallet";
@@ -95,6 +101,7 @@ export function CalculatorApp() {
   const [skus, setSkus] = useState<SkuInput[]>(defaultSkus);
   const [settings, setSettings] = useState<CalculatorSettings>(defaultSettings);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [skuImportStatus, setSkuImportStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const availableWbWarehouses = useMemo(() => wbWarehousesForDestination(settings.firstMileCity), [settings.firstMileCity]);
   const selectedWbWarehouse = availableWbWarehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
   const calculationSettings = useMemo<CalculatorSettings>(
@@ -140,6 +147,35 @@ export function CalculatorApp() {
 
   function removeSku(id: string) {
     setSkus((current) => (current.length > 1 ? current.filter((sku) => sku.id !== id) : current));
+  }
+
+  async function handleSkuImport(file: File | null) {
+    if (!file) return;
+    try {
+      const result = await importSkusFromXlsxFile(file, tariffData);
+      if (!result.skus.length) {
+        setSkuImportStatus({ kind: "error", message: result.warnings.join(" ") || "Не удалось загрузить SKU из файла." });
+        return;
+      }
+      setSkus(result.skus);
+      setSkuImportStatus({
+        kind: result.warnings.length ? "error" : "success",
+        message: result.warnings.length
+          ? `Загружено SKU: ${result.skus.length}. Есть замечания: ${result.warnings.join(" ")}`
+          : `Загружено SKU: ${result.skus.length}.`
+      });
+    } catch (error) {
+      setSkuImportStatus({ kind: "error", message: error instanceof Error ? error.message : "Не удалось прочитать Excel-файл." });
+    }
+  }
+
+  function downloadSkuTemplate() {
+    const url = URL.createObjectURL(createSkuImportTemplateBlob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "Шаблон загрузки SKU PIM.Seller.xlsx";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   function updateDestinationCity(destinationCity: string) {
@@ -395,17 +431,50 @@ export function CalculatorApp() {
       <section className="sku-editor" aria-label="SKU">
         <div className="section-heading">
           <h2>SKU</h2>
-          <button type="button" onClick={addSku}>
-            Добавить SKU
-          </button>
+          <div className="section-actions">
+            <label className="file-button">
+              <input
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => {
+                  void handleSkuImport(event.target.files?.[0] ?? null);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <span>Загрузить Excel</span>
+            </label>
+            <button className="link-button subtle" type="button" onClick={downloadSkuTemplate}>
+              Скачать образец
+            </button>
+            <button type="button" onClick={addSku}>
+              Добавить SKU
+            </button>
+          </div>
         </div>
+        {skuImportStatus ? <p className={`import-status ${skuImportStatus.kind}`}>{skuImportStatus.message}</p> : null}
         <div className="sku-table-wrap">
           <table className="sku-table">
+            <colgroup>
+              <col className="sku-col-name" />
+              <col className="sku-col-price" />
+              <col className="sku-col-wb-category" />
+              <col className="sku-col-wb-subject" />
+              <col className="sku-col-ozon-category" />
+              <col className="sku-col-ozon-type" />
+              <col className="sku-col-weight" />
+              <col className="sku-col-length" />
+              <col className="sku-col-width" />
+              <col className="sku-col-height" />
+              <col className="sku-col-pallet" />
+              <col className="sku-col-action" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Название</th>
                 <th>Цена с НДС</th>
                 <th>WB категория</th>
+                <th>WB предмет</th>
+                <th>Ozon категория</th>
                 <th>Ozon тип товара</th>
                 <th>Вес</th>
                 <th>Длина</th>
@@ -419,24 +488,78 @@ export function CalculatorApp() {
               {skus.map((sku) => (
                 <tr key={sku.id}>
                   <td>
-                    <input value={sku.name} onChange={(event) => updateSku(sku.id, { name: event.target.value })} />
+                    <input title={sku.name} value={sku.name} onChange={(event) => updateSku(sku.id, { name: event.target.value })} />
                   </td>
                   <td>
                     <NumberInput value={sku.price} onChange={(value) => updateSkuNumber(sku.id, "price", value)} />
                   </td>
                   <td>
                     <input
-                      list="wb-subjects"
-                      value={sku.wbSubject}
-                      onChange={(event) => updateSku(sku.id, { wbSubject: event.target.value })}
+                      list="wb-categories"
+                      title={sku.wbCategory}
+                      value={sku.wbCategory}
+                      onChange={(event) => {
+                        const wbCategory = canonicalLookupValue(event.target.value, wbCategories);
+                        const categorySubjects = subjectsForWbCategory(wbCategory);
+                        updateSku(sku.id, {
+                          wbCategory,
+                          wbSubject: hasLookupValue(categorySubjects, sku.wbSubject) ? canonicalLookupValue(sku.wbSubject, categorySubjects) : ""
+                        });
+                      }}
                     />
                   </td>
                   <td>
                     <input
-                      list="ozon-product-types"
-                      value={sku.ozonProductType}
-                      onChange={(event) => updateSku(sku.id, { ozonProductType: event.target.value })}
+                      list={`wb-subjects-${sku.id}`}
+                      title={sku.wbSubject}
+                      value={sku.wbSubject}
+                      onChange={(event) => {
+                        const wbSubject = canonicalLookupValue(event.target.value, subjectsForWbCategory(sku.wbCategory));
+                        updateSku(sku.id, {
+                          wbSubject,
+                          wbCategory: categoryForWbSubject(wbSubject, sku.wbCategory) ?? sku.wbCategory
+                        });
+                      }}
                     />
+                    <datalist id={`wb-subjects-${sku.id}`}>
+                      {lookupDatalistValues(subjectsForWbCategory(sku.wbCategory)).map((subject) => (
+                        <option key={subject} value={subject} />
+                      ))}
+                    </datalist>
+                  </td>
+                  <td>
+                    <input
+                      list="ozon-categories"
+                      title={sku.ozonCategory}
+                      value={sku.ozonCategory}
+                      onChange={(event) => {
+                        const ozonCategory = canonicalLookupValue(event.target.value, ozonCategories);
+                        const categoryTypes = productTypesForOzonCategory(ozonCategory);
+                        updateSku(sku.id, {
+                          ozonCategory,
+                          ozonProductType: hasLookupValue(categoryTypes, sku.ozonProductType) ? canonicalLookupValue(sku.ozonProductType, categoryTypes) : ""
+                        });
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      list={`ozon-product-types-${sku.id}`}
+                      title={sku.ozonProductType}
+                      value={sku.ozonProductType}
+                      onChange={(event) => {
+                        const ozonProductType = canonicalLookupValue(event.target.value, productTypesForOzonCategory(sku.ozonCategory));
+                        updateSku(sku.id, {
+                          ozonProductType,
+                          ozonCategory: categoryForOzonProductType(ozonProductType, sku.ozonCategory) ?? sku.ozonCategory
+                        });
+                      }}
+                    />
+                    <datalist id={`ozon-product-types-${sku.id}`}>
+                      {lookupDatalistValues(productTypesForOzonCategory(sku.ozonCategory)).map((type) => (
+                        <option key={type} value={type} />
+                      ))}
+                    </datalist>
                   </td>
                   <td>
                     <NumberInput value={sku.weightKg} onChange={(value) => updateSkuNumber(sku.id, "weightKg", value)} />
@@ -463,14 +586,14 @@ export function CalculatorApp() {
             </tbody>
           </table>
         </div>
-        <datalist id="wb-subjects">
-          {wbSubjects.map((subject) => (
-            <option key={subject} value={subject} />
+        <datalist id="wb-categories">
+          {lookupDatalistValues(wbCategories).map((category) => (
+            <option key={category} value={category} />
           ))}
         </datalist>
-        <datalist id="ozon-product-types">
-          {ozonProductTypes.map((type) => (
-            <option key={type} value={type} />
+        <datalist id="ozon-categories">
+          {lookupDatalistValues(ozonCategories).map((category) => (
+            <option key={category} value={category} />
           ))}
         </datalist>
       </section>
@@ -694,15 +817,7 @@ function AdminPanel({
   const groups = marginGroups(calculations, settings.vatDisplayMode);
   const marginVatLabel = settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
   const markupBases = markupReferenceBases(settings);
-  const warehouseGroupBases = referenceWarehouseGroupBases(calculations, settings.vatDisplayMode);
   const middleMileRows = middleMileMarkupRows(calculations);
-  const updateWarehouseMarkup = (group: WarehouseOperationGroup, value: number) =>
-    onSettingsChange({
-      warehouseOperationMarkupPercents: {
-        ...settings.warehouseOperationMarkupPercents,
-        [group]: value
-      }
-    });
   const updateOperationRowMarkup = (operationKey: string, value: number) =>
     onSettingsChange({
       warehouseOperationRowMarkupPercents: {
@@ -746,29 +861,16 @@ function AdminPanel({
               onPercentChange={(firstMileMarkupPercent) => onSettingsChange({ firstMileMarkupPercent })}
             />
           </MarkupCard>
-          <MarkupCard
-            action={
-              <button className="link-button" type="button" onClick={() => setIsWarehousePriceListOpen(true)}>
-                Прайс-лист
-              </button>
-            }
-            description={operationDescriptions.warehouse}
-            title="Складские операции"
-          >
-            {warehouseGroupOrder
-              .filter((group) => settings.warehouseOperationGroups[group])
-              .map((group) => (
-                <MarkupPairInput
-                  key={group}
-                  label={warehouseGroupDetails[group].label}
-                  rubLabel="₽"
-                  baseLabel={`${formatRub(warehouseGroupBases[group] ?? 0)}`}
-                  baseRub={warehouseGroupBases[group] ?? 0}
-                  percent={settings.warehouseOperationMarkupPercents[group] ?? settings.warehouseMarkupPercent}
-                  onPercentChange={(value) => updateWarehouseMarkup(group, value)}
-                />
-              ))}
-          </MarkupCard>
+          <section className="markup-card">
+            <div className="markup-card-title">
+              <strong>Складские операции</strong>
+              <div className="markup-card-actions">
+                <button className="link-button" type="button" onClick={() => setIsWarehousePriceListOpen(true)}>
+                  Прайс-лист
+                </button>
+              </div>
+            </div>
+          </section>
           <MarkupCard description={operationDescriptions.middleMile} title="Средняя миля">
             {middleMileRows.map((row) => (
               <MarkupPairInput
@@ -825,7 +927,6 @@ function AdminPanel({
           <table className="admin-table">
             <colgroup>
               <col className="admin-col-sku" />
-              <col className="admin-col-marketplace" />
               <col className="admin-col-scheme" />
               {Array.from({ length: 5 }).flatMap((_, index) => [
                 <col key={`cost-${index}`} className="admin-col-cost" />,
@@ -835,7 +936,6 @@ function AdminPanel({
             <thead>
               <tr>
                 <th className="admin-dimension-head" rowSpan={2}>SKU</th>
-                <th className="admin-dimension-head" rowSpan={2}>Маркетплейс</th>
                 <th className="admin-dimension-head admin-scheme-head" rowSpan={2}>Схема</th>
                 <th className="admin-profit-group" colSpan={2}>Первая миля</th>
                 <th className="admin-profit-group" colSpan={2}>Складские операции</th>
@@ -878,33 +978,26 @@ function AdminPanel({
             </thead>
             <tbody>
               {groups.map((group) =>
-                group.marketplaces.map((marketplaceGroup, marketplaceIndex) =>
-                  marketplaceGroup.rows.map((row, schemeIndex) => (
-                    <tr key={`${group.skuId}-${marketplaceGroup.marketplace}-${row.scheme}`}>
-                      {marketplaceIndex === 0 && schemeIndex === 0 ? (
-                        <td className="admin-group-cell sku-cell" rowSpan={group.rowSpan}>
-                          {group.skuName}
-                        </td>
-                      ) : null}
-                      {schemeIndex === 0 ? (
-                        <td className="admin-group-cell marketplace-cell" rowSpan={marketplaceGroup.rows.length}>
-                          {labelForMarketplace(marketplaceGroup.marketplace)}
-                        </td>
-                      ) : null}
-                      <td className="admin-scheme-cell">{labelForScheme(row.scheme)}</td>
-                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.firstMile.total)}</td>
-                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.firstMile.margin)}</td>
-                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.warehouse.total)}</td>
-                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.warehouse.margin)}</td>
-                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.middleMile.total)}</td>
-                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.middleMile.margin)}</td>
-                      <td className="admin-value admin-cost-cell">{formatRub(row.summary.lastMile.total)}</td>
-                      <td className="admin-value admin-margin-cell">{formatRub(row.summary.lastMile.margin)}</td>
-                      <td className="admin-value admin-cost-cell admin-total-cell"><strong>{formatRub(row.summary.total.total)}</strong></td>
-                      <td className="admin-value admin-margin-cell admin-total-cell"><strong>{formatRub(row.summary.total.margin)}</strong></td>
-                    </tr>
-                  ))
-                )
+                group.rows.map((row, rowIndex) => (
+                  <tr key={`${group.skuId}-${row.scheme}`}>
+                    {rowIndex === 0 ? (
+                      <td className="admin-group-cell sku-cell" rowSpan={group.rows.length}>
+                        {group.skuName}
+                      </td>
+                    ) : null}
+                    <td className="admin-scheme-cell">{labelForScheme(row.scheme)}</td>
+                    <td className="admin-value admin-cost-cell">{formatRub(row.summary.firstMile.total)}</td>
+                    <td className="admin-value admin-margin-cell">{formatRub(row.summary.firstMile.margin)}</td>
+                    <td className="admin-value admin-cost-cell">{formatRub(row.summary.warehouse.total)}</td>
+                    <td className="admin-value admin-margin-cell">{formatRub(row.summary.warehouse.margin)}</td>
+                    <td className="admin-value admin-cost-cell">{formatRub(row.summary.middleMile.total)}</td>
+                    <td className="admin-value admin-margin-cell">{formatRub(row.summary.middleMile.margin)}</td>
+                    <td className="admin-value admin-cost-cell">{formatRub(row.summary.lastMile.total)}</td>
+                    <td className="admin-value admin-margin-cell">{formatRub(row.summary.lastMile.margin)}</td>
+                    <td className="admin-value admin-cost-cell admin-total-cell"><strong>{formatRub(row.summary.total.total)}</strong></td>
+                    <td className="admin-value admin-margin-cell admin-total-cell"><strong>{formatRub(row.summary.total.margin)}</strong></td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -916,18 +1009,14 @@ function AdminPanel({
 
 function marginGroups(calculations: Array<{ sku: SkuInput; result: CalculationResult }>, vatDisplayMode: CalculatorSettings["vatDisplayMode"]) {
   return calculations.map(({ sku, result }) => {
-    const marketplaces = (["wildberries", "ozon"] as const).map((marketplace) => ({
-      marketplace,
-      rows: (["fbs", "dbs"] as const).map((scheme) => ({
-        scheme,
-        summary: summarizePimMargin(result[marketplace][scheme], vatDisplayMode)
-      }))
+    const rows = (["fbs", "dbs"] as const).map((scheme) => ({
+      scheme,
+      summary: summarizePimMargin(result.wildberries[scheme], vatDisplayMode)
     }));
     return {
       skuId: sku.id,
       skuName: sku.name,
-      marketplaces,
-      rowSpan: marketplaces.reduce((sum, item) => sum + item.rows.length, 0)
+      rows
     };
   });
 }
@@ -1163,36 +1252,6 @@ function MarkupCard({
   );
 }
 
-function MarkupInput({
-  baseLabel,
-  label,
-  value,
-  onChange
-}: {
-  baseLabel: string;
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <div className="markup-line">
-      <span>{label}</span>
-      <strong>{baseLabel}</strong>
-      <label>
-        <input
-          aria-label={`${label}: процент наценки`}
-          min="0"
-          step="1"
-          type="number"
-          value={value}
-          onChange={(event) => onChange(parseInputNumber(event.target.value))}
-        />
-      </label>
-      <em>по статьям</em>
-    </div>
-  );
-}
-
 function MarkupPairInput({
   baseRub,
   baseLabel,
@@ -1359,23 +1418,6 @@ function middleMileMarkupRows(calculations: Array<{ sku: SkuInput }>): Array<{
   }
 
   return rows;
-}
-
-function referenceWarehouseGroupBases(
-  calculations: Array<{ sku: SkuInput; result: CalculationResult }>,
-  vatDisplayMode: CalculatorSettings["vatDisplayMode"]
-): Record<WarehouseOperationGroup, number> {
-  const bases = Object.fromEntries(warehouseGroupOrder.map((group) => [group, 0])) as Record<WarehouseOperationGroup, number>;
-  const firstFbs = calculations[0]?.result.wildberries.fbs;
-  if (!firstFbs) return bases;
-
-  for (const item of firstFbs.breakdown) {
-    if (item.pimProfitCenter !== "warehouse" || !item.pimWarehouseGroup) continue;
-    const costWithoutVat = item.pimCostWithoutVatRub ?? item.amountWithoutVatRub;
-    bases[item.pimWarehouseGroup] += vatDisplayMode === "with_vat" ? costWithoutVat * 1.22 : costWithoutVat;
-  }
-
-  return Object.fromEntries(Object.entries(bases).map(([group, value]) => [group, roundRub(value)])) as Record<WarehouseOperationGroup, number>;
 }
 
 function warehousePriceListGroups(skus: SkuInput[], settings: CalculatorSettings, isFulfillmentExtrasOpen: boolean) {
@@ -1593,7 +1635,56 @@ function displayWarehousePrice(priceRubWithoutVat: number, vatDisplayMode: Calcu
   return roundRub(vatDisplayMode === "with_vat" ? priceRubWithoutVat * 1.22 : priceRubWithoutVat);
 }
 
+function canonicalLookupValue(value: string, options: string[]): string {
+  const normalized = normalizeLookupValue(value);
+  return options.find((option) => normalizeLookupValue(option) === normalized) ?? value;
+}
+
+function hasLookupValue(options: string[], value: string): boolean {
+  const normalized = normalizeLookupValue(value);
+  return options.some((option) => normalizeLookupValue(option) === normalized);
+}
+
+function lookupDatalistValues(options: string[]): string[] {
+  return Array.from(
+    new Set(
+      options.flatMap((option) => {
+        const lowerOption = normalizeLookupValue(option);
+        return lowerOption === option ? [option] : [option, lowerOption];
+      })
+    )
+  );
+}
+
+function normalizeLookupValue(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+}
+
+function subjectsForWbCategory(category: string): string[] {
+  const exactCategory = canonicalLookupValue(category, wbCategories);
+  return wbSubjectsByCategory[exactCategory] ?? wbSubjects;
+}
+
+function productTypesForOzonCategory(category: string): string[] {
+  const exactCategory = canonicalLookupValue(category, ozonCategories);
+  return ozonProductTypesByCategory[exactCategory] ?? ozonProductTypes;
+}
+
+function categoryForWbSubject(subject: string, currentCategory: string): string | null {
+  const entries = tariffData.wildberriesCommissions.filter((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(subject));
+  if (!entries.length) return null;
+  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
+}
+
+function categoryForOzonProductType(productType: string, currentCategory: string): string | null {
+  const entries = tariffData.ozonCommissions.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(productType));
+  if (!entries.length) return null;
+  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
+}
+
 function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean }) {
+  const displayBreakdown = breakdownItemsForDisplay(result);
+
   return (
     <td className={[isBest ? "result-cell best" : "result-cell", result.isComplete ? "" : "incomplete"].join(" ")}>
       <div className="result-main">
@@ -1610,7 +1701,7 @@ function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean 
       <details>
         <summary>Статьи</summary>
         <ul className="breakdown-list">
-          {result.breakdown.map((item) => (
+          {displayBreakdown.map((item) => (
             <li key={item.key}>
               <span className="breakdown-label">
                 <span className="breakdown-title">
