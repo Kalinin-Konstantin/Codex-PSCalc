@@ -62,7 +62,19 @@ type CommissionCost = {
   discount: CommissionDiscount | null;
 };
 type CostParts = { baseRub: number; additionalRub: number; totalRub: number };
+type LastMileCostParts = CostParts & {
+  city: string;
+  zoneLabel: string;
+  includedKg: number;
+  chargeableKg: number;
+  extraKg: number;
+  baseRateRub: number;
+  extraRateRubPerKg: number;
+};
 type MiddleMileCostParts = CostParts & {
+  volumeLiters: number;
+  additionalTo190Liters: number;
+  additional191To350Liters: number;
   firstLiterRub: number;
   additionalTo190Rub: number;
   additional191To350Rub: number;
@@ -273,6 +285,11 @@ function calculateMarketplaceScheme(
       pimMiddleMileAdditional191To350CostWithoutVatRub: middleMile.additional191To350Rub,
       pimMiddleMileFixed351To1000CostWithoutVatRub: middleMile.fixed351To1000Rub,
       pimMiddleMileFixedFrom1001CostWithoutVatRub: middleMile.fixedFrom1001Rub,
+      pimMiddleMileCalculation: {
+        volumeLiters: middleMile.volumeLiters,
+        additionalTo190Liters: middleMile.additionalTo190Liters,
+        additional191To350Liters: middleMile.additional191To350Liters
+      },
       source: "pim",
       vatMode: "without_vat",
       calculationNote: middleMileNote(sku, middleMile)
@@ -290,6 +307,17 @@ function calculateMarketplaceScheme(
       amountRub: lastMile?.totalRub ?? 0,
       pimBaseCostWithoutVatRub: lastMile?.baseRub ?? 0,
       pimAdditionalCostWithoutVatRub: lastMile?.additionalRub ?? 0,
+      pimLastMileCalculation: lastMile
+        ? {
+            city: lastMile.city,
+            zoneLabel: lastMile.zoneLabel,
+            includedKg: lastMile.includedKg,
+            chargeableKg: lastMile.chargeableKg,
+            extraKg: lastMile.extraKg,
+            baseRateRub: lastMile.baseRateRub,
+            extraRateRubPerKg: lastMile.extraRateRubPerKg
+          }
+        : undefined,
       source: "pim",
       vatMode: "without_vat",
       calculationNote: lastMileNote(sku, settings, tariffs.logistics, lastMile)
@@ -346,10 +374,53 @@ function applyPimCommercialMarkup(item: DraftBreakdownItem, settings: Calculator
         ? `Себестоимость ${formatDecimal(item.amountRub)} ₽ · наценка ${markup.note}`
         : undefined,
     calculationNote:
-      settings.presentationMode === "internal" || markup.profitRub === 0
+      settings.presentationMode === "internal"
         ? item.calculationNote
-        : `${item.calculationNote ?? "Тариф PIM.Seller."} Коммерческие условия учтены в итоговой ставке.`
+        : clientPimCalculationNote(item, profitCenter, markup)
   };
+}
+
+function clientPimCalculationNote(
+  item: DraftBreakdownItem,
+  profitCenter: PimProfitCenter,
+  markup: {
+    profitRub: number;
+    note: string;
+    firstLiterProfitRub?: number;
+    additionalTo190ProfitRub?: number;
+    additional191To350ProfitRub?: number;
+    fixed351To1000ProfitRub?: number;
+    fixedFrom1001ProfitRub?: number;
+    baseProfitRub?: number;
+    additionalProfitRub?: number;
+  }
+): string | undefined {
+  if (profitCenter === "middleMile" && item.pimMiddleMileCalculation) {
+    const parts: MiddleMileCostParts = {
+      baseRub: (item.pimBaseCostWithoutVatRub ?? 0) + markup.profitRub,
+      additionalRub: (item.pimAdditionalCostWithoutVatRub ?? 0) + (markup.additionalTo190ProfitRub ?? 0) + (markup.additional191To350ProfitRub ?? 0) + (markup.fixed351To1000ProfitRub ?? 0) + (markup.fixedFrom1001ProfitRub ?? 0),
+      totalRub: item.amountRub + markup.profitRub,
+      volumeLiters: item.pimMiddleMileCalculation.volumeLiters,
+      additionalTo190Liters: item.pimMiddleMileCalculation.additionalTo190Liters,
+      additional191To350Liters: item.pimMiddleMileCalculation.additional191To350Liters,
+      firstLiterRub: (item.pimMiddleMileFirstLiterCostWithoutVatRub ?? 0) + (markup.firstLiterProfitRub ?? 0),
+      additionalTo190Rub: (item.pimMiddleMileAdditionalTo190CostWithoutVatRub ?? 0) + (markup.additionalTo190ProfitRub ?? 0),
+      additional191To350Rub: (item.pimMiddleMileAdditional191To350CostWithoutVatRub ?? 0) + (markup.additional191To350ProfitRub ?? 0),
+      fixed351To1000Rub: (item.pimMiddleMileFixed351To1000CostWithoutVatRub ?? 0) + (markup.fixed351To1000ProfitRub ?? 0),
+      fixedFrom1001Rub: (item.pimMiddleMileFixedFrom1001CostWithoutVatRub ?? 0) + (markup.fixedFrom1001ProfitRub ?? 0)
+    };
+    return middleMileCalculationText(parts);
+  }
+  if (profitCenter === "lastMile" && item.pimLastMileCalculation) {
+    const details = item.pimLastMileCalculation;
+    const baseRateRub = (item.pimBaseCostWithoutVatRub ?? details.baseRateRub) + (markup.baseProfitRub ?? 0);
+    const extraRateRubPerKg =
+      details.extraKg > 0
+        ? ((item.pimAdditionalCostWithoutVatRub ?? 0) + (markup.additionalProfitRub ?? 0)) / details.extraKg
+        : details.extraRateRubPerKg + (markup.additionalProfitRub ?? 0);
+    return lastMileCalculationText(details, baseRateRub, extraRateRubPerKg);
+  }
+  return item.calculationNote;
 }
 
 function pimProfitCenter(key: string): PimProfitCenter | null {
@@ -365,7 +436,17 @@ function pimMarkup(
   item: DraftBreakdownItem,
   profitCenter: PimProfitCenter,
   settings: CalculatorSettings
-): { profitRub: number; note: string } {
+): {
+  profitRub: number;
+  note: string;
+  firstLiterProfitRub?: number;
+  additionalTo190ProfitRub?: number;
+  additional191To350ProfitRub?: number;
+  fixed351To1000ProfitRub?: number;
+  fixedFrom1001ProfitRub?: number;
+  baseProfitRub?: number;
+  additionalProfitRub?: number;
+} {
   if (profitCenter === "middleMile") {
     const firstLiter = item.pimMiddleMileFirstLiterCostWithoutVatRub ?? item.pimBaseCostWithoutVatRub ?? item.amountRub;
     const additionalTo190 = item.pimMiddleMileAdditionalTo190CostWithoutVatRub ?? item.pimAdditionalCostWithoutVatRub ?? 0;
@@ -385,7 +466,12 @@ function pimMarkup(
     if (fixedFrom1001 > 0) noteParts.push(`1001+ л ${formatDecimal(settings.middleMileFrom1001MarkupPercent)}%`);
     return {
       profitRub: firstLiterProfit + additionalTo190Profit + additional191To350Profit + fixed351To1000Profit + fixedFrom1001Profit,
-      note: noteParts.join(", ")
+      note: noteParts.join(", "),
+      firstLiterProfitRub: firstLiterProfit,
+      additionalTo190ProfitRub: additionalTo190Profit,
+      additional191To350ProfitRub: additional191To350Profit,
+      fixed351To1000ProfitRub: fixed351To1000Profit,
+      fixedFrom1001ProfitRub: fixedFrom1001Profit
     };
   }
 
@@ -396,7 +482,9 @@ function pimMarkup(
     const additionalProfit = additional * (settings.lastMileAdditionalKgMarkupPercent / 100);
     return {
       profitRub: baseProfit + additionalProfit,
-      note: `до 3 кг ${formatDecimal(settings.lastMileBaseMarkupPercent)}%, сверх 3 кг ${formatDecimal(settings.lastMileAdditionalKgMarkupPercent)}%`
+      note: `до 3 кг ${formatDecimal(settings.lastMileBaseMarkupPercent)}%, сверх 3 кг ${formatDecimal(settings.lastMileAdditionalKgMarkupPercent)}%`,
+      baseProfitRub: baseProfit,
+      additionalProfitRub: additionalProfit
     };
   }
 
@@ -522,10 +610,9 @@ function commissionCalculationNote(commission: CommissionCost): string {
 }
 
 export function findWbCommission(sku: Pick<SkuInput, "wbSubject" | "wbCategory">, entries: WbCommissionEntry[]): Record<Scheme, number> | null {
+  if (!normalizeLookupText(sku.wbSubject)) return null;
   const bySubject = entries.find((entry) => sameLookupText(entry.subject, sku.wbSubject));
   if (bySubject) return bySubject.commission;
-  const byCategory = entries.find((entry) => sameLookupText(entry.category, sku.wbCategory));
-  if (byCategory) return byCategory.commission;
   return null;
 }
 
@@ -545,6 +632,7 @@ function findOzonCommissionEntry(
   sku: Pick<SkuInput, "ozonProductType" | "ozonCategory">,
   entries: OzonCommissionEntry[]
 ): OzonCommissionEntry | null {
+  if (!normalizeLookupText(sku.ozonProductType)) return null;
   const byProductType = entries.filter((item) => sameLookupText(item.productType, sku.ozonProductType));
   if (byProductType.length) {
     return (
@@ -553,7 +641,7 @@ function findOzonCommissionEntry(
       byProductType[0]
     );
   }
-  return entries.find((item) => sameLookupText(item.category, sku.ozonCategory)) ?? null;
+  return null;
 }
 
 function sameLookupText(left: string, right: string): boolean {
@@ -561,7 +649,7 @@ function sameLookupText(left: string, right: string): boolean {
 }
 
 function normalizeLookupText(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+  return value.trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
 
 function priceBandKey(price: number, scheme: Scheme): string {
@@ -1307,16 +1395,21 @@ function middleMileCostParts(sku: SkuInput, middleMile: MiddleMileTariffs): Midd
   let additional191To350Rub = 0;
   let fixed351To1000Rub = 0;
   let fixedFrom1001Rub = 0;
+  let additionalTo190Liters = 0;
+  let additional191To350Liters = 0;
   let totalRub = base;
 
   if (volumeLiters > 1 && volumeLiters <= 190) {
-    additionalTo190Rub = (volumeLiters - 1) * extraTo190;
+    additionalTo190Liters = volumeLiters - 1;
+    additionalTo190Rub = additionalTo190Liters * extraTo190;
     totalRub = firstLiterRub + additionalTo190Rub;
   }
 
   if (volumeLiters > 190 && volumeLiters <= 350) {
+    additionalTo190Liters = 189;
+    additional191To350Liters = volumeLiters - 190;
     additionalTo190Rub = 189 * extraTo190;
-    additional191To350Rub = (volumeLiters - 190) * extraTo350;
+    additional191To350Rub = additional191To350Liters * extraTo350;
     totalRub = firstLiterRub + additionalTo190Rub + additional191To350Rub;
   }
 
@@ -1335,6 +1428,9 @@ function middleMileCostParts(sku: SkuInput, middleMile: MiddleMileTariffs): Midd
   return {
     baseRub: money(firstLiterRub),
     additionalRub: money(additionalTo190Rub + additional191To350Rub + fixed351To1000Rub + fixedFrom1001Rub),
+    volumeLiters,
+    additionalTo190Liters,
+    additional191To350Liters,
     firstLiterRub: money(firstLiterRub),
     additionalTo190Rub: money(additionalTo190Rub),
     additional191To350Rub: money(additional191To350Rub),
@@ -1345,35 +1441,72 @@ function middleMileCostParts(sku: SkuInput, middleMile: MiddleMileTariffs): Midd
 }
 
 function middleMileNote(sku: SkuInput, parts: MiddleMileCostParts): string {
-  const { volumeLiters } = calculateSkuMetrics(sku);
-  if (parts.fixedFrom1001Rub > 0) return `Объём ${formatDecimal(volumeLiters)} л: фиксированный тариф для 1001+ л.`;
-  if (parts.fixed351To1000Rub > 0) return `Объём ${formatDecimal(volumeLiters)} л: фиксированный тариф для 351-1000 л.`;
-  if (parts.additional191To350Rub > 0) {
-    return `Объём ${formatDecimal(volumeLiters)} л: 1-й литр + 189 л × тариф + сверх 190 л × тариф.`;
-  }
-  if (parts.additionalTo190Rub > 0) return `Объём ${formatDecimal(volumeLiters)} л: 1-й литр + сверх 1 л × тариф.`;
-  return `Объём ${formatDecimal(volumeLiters)} л: тариф до 1 литра.`;
+  return middleMileCalculationText({ ...parts, volumeLiters: calculateSkuMetrics(sku).volumeLiters });
 }
 
-function pimLastMileCostParts(sku: SkuInput, settings: CalculatorSettings, logistics: LogisticsAssumptions): CostParts | null {
+function middleMileCalculationText(parts: MiddleMileCostParts): string {
+  if (parts.fixedFrom1001Rub > 0) {
+    return `Объём ${formatDecimal(parts.volumeLiters)} л: фиксированный тариф 1001+ л = ${formatDecimal(parts.fixedFrom1001Rub)} ₽. Итого: ${formatDecimal(parts.fixedFrom1001Rub)} ₽ без НДС.`;
+  }
+  if (parts.fixed351To1000Rub > 0) {
+    return `Объём ${formatDecimal(parts.volumeLiters)} л: фиксированный тариф 351-1000 л = ${formatDecimal(parts.fixed351To1000Rub)} ₽. Итого: ${formatDecimal(parts.fixed351To1000Rub)} ₽ без НДС.`;
+  }
+
+  const pieces: string[] = [`1-й литр = ${formatDecimal(parts.firstLiterRub)} ₽`];
+  if (parts.additionalTo190Rub > 0) {
+    const rate = parts.additionalTo190Liters > 0 ? parts.additionalTo190Rub / parts.additionalTo190Liters : 0;
+    pieces.push(`2-190 л: ${formatDecimal(parts.additionalTo190Liters)} л × ${formatDecimal(rate)} ₽/л = ${formatDecimal(parts.additionalTo190Rub)} ₽`);
+  }
+  if (parts.additional191To350Rub > 0) {
+    const rate = parts.additional191To350Liters > 0 ? parts.additional191To350Rub / parts.additional191To350Liters : 0;
+    pieces.push(`191-350 л: ${formatDecimal(parts.additional191To350Liters)} л × ${formatDecimal(rate)} ₽/л = ${formatDecimal(parts.additional191To350Rub)} ₽`);
+  }
+  const totalRub = parts.firstLiterRub + parts.additionalTo190Rub + parts.additional191To350Rub;
+  return `Объём ${formatDecimal(parts.volumeLiters)} л: ${pieces.join("; ")}. Итого: ${formatDecimal(totalRub)} ₽ без НДС.`;
+}
+
+function pimLastMileCostParts(sku: SkuInput, settings: CalculatorSettings, logistics: LogisticsAssumptions): LastMileCostParts | null {
   const metrics = calculateSkuMetrics(sku);
   const tariff = logistics.pimLastMile;
   const row = tariff.sellerTariffRows?.find((item) => item.city === settings.firstMileCity);
   if (!row) return null;
   const baseRub = settings.lastMileZone === "region" ? row.regionBaseRub : row.cityBaseRub;
   const extraRubPerKg = settings.lastMileZone === "region" ? row.regionExtraRubPerKg : row.cityExtraRubPerKg;
+  const zoneLabel = settings.lastMileZone === "region" ? "область/регион" : "город";
+  const extraKg = Math.max(0, metrics.chargeableKg - tariff.includedChargeableKg);
   const baseCostRub = baseRub * tariff.costMultiplier;
-  const additionalCostRub = Math.max(0, metrics.chargeableKg - tariff.includedChargeableKg) * extraRubPerKg * tariff.costMultiplier;
-  return { baseRub: baseCostRub, additionalRub: additionalCostRub, totalRub: baseCostRub + additionalCostRub };
+  const extraCostRubPerKg = extraRubPerKg * tariff.costMultiplier;
+  const additionalCostRub = extraKg * extraCostRubPerKg;
+  return {
+    baseRub: baseCostRub,
+    additionalRub: additionalCostRub,
+    totalRub: baseCostRub + additionalCostRub,
+    city: settings.firstMileCity,
+    zoneLabel,
+    includedKg: tariff.includedChargeableKg,
+    chargeableKg: metrics.chargeableKg,
+    extraKg,
+    baseRateRub: baseCostRub,
+    extraRateRubPerKg: extraCostRubPerKg
+  };
 }
 
-function lastMileNote(sku: SkuInput, settings: CalculatorSettings, logistics: LogisticsAssumptions, parts: CostParts | null): string {
-  const metrics = calculateSkuMetrics(sku);
+function lastMileNote(_sku: SkuInput, settings: CalculatorSettings, logistics: LogisticsAssumptions, parts: LastMileCostParts | null): string {
   const tariff = logistics.pimLastMile;
   const row = tariff.sellerTariffRows?.find((item) => item.city === settings.firstMileCity);
   const zoneLabel = settings.lastMileZone === "region" ? "область/регион" : "город";
   if (!row || !parts) return `Город ${settings.firstMileCity}, зона ${zoneLabel}: тариф не найден.`;
-  return `Город ${settings.firstMileCity}, зона ${zoneLabel}: до ${formatDecimal(tariff.includedChargeableKg)} кг + сверх лимита по расчётному весу ${formatDecimal(metrics.chargeableKg)} кг.`;
+  return lastMileCalculationText(parts, parts.baseRateRub, parts.extraRateRubPerKg);
+}
+
+function lastMileCalculationText(
+  details: Pick<LastMileCostParts, "city" | "zoneLabel" | "includedKg" | "chargeableKg" | "extraKg">,
+  baseRateRub: number,
+  extraRateRubPerKg: number
+): string {
+  const additionalRub = details.extraKg * extraRateRubPerKg;
+  const totalRub = baseRateRub + additionalRub;
+  return `Город ${details.city}, зона ${details.zoneLabel}: до ${formatDecimal(details.includedKg)} кг = ${formatDecimal(baseRateRub)} ₽; расчётный вес ${formatDecimal(details.chargeableKg)} кг, сверх лимита ${formatDecimal(details.extraKg)} кг × ${formatDecimal(extraRateRubPerKg)} ₽/кг = ${formatDecimal(additionalRub)} ₽. Итого: ${formatDecimal(totalRub)} ₽ без НДС.`;
 }
 
 function safeDivide(numerator: number, denominator: number): number {

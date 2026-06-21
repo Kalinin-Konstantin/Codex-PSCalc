@@ -27,6 +27,7 @@ import {
   wbSubjects,
   wbSubjectsByCategory,
 } from "../lib/tariffs";
+import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, WarehouseOperationGroup } from "../lib/types";
 
@@ -175,6 +176,17 @@ export function CalculatorApp() {
     link.href = url;
     link.download = "Шаблон загрузки SKU PIM.Seller.xlsx";
     link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadClientReport() {
+    const url = URL.createObjectURL(createClientReportBlob(skus, settings, tariffData));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Расчёт PIM.Seller для клиента ${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -445,6 +457,9 @@ export function CalculatorApp() {
             </label>
             <button className="link-button subtle" type="button" onClick={downloadSkuTemplate}>
               Скачать образец
+            </button>
+            <button className="link-button subtle" type="button" onClick={downloadClientReport}>
+              Скачать расчёт
             </button>
             <button type="button" onClick={addSku}>
               Добавить SKU
@@ -1657,7 +1672,7 @@ function lookupDatalistValues(options: string[]): string[] {
 }
 
 function normalizeLookupValue(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+  return value.trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
 
 function subjectsForWbCategory(category: string): string[] {

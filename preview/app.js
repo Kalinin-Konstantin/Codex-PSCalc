@@ -330,24 +330,47 @@ function buildSkusFromImportRows(rows) {
       warnings.push(`Строка ${rowNumber}: не заполнены обязательные поля: ${missing.join(", ")}.`);
       return;
     }
-    const wbCategory = resolveWbCategory(String(wbSubject), stringCell(row, ["WB категория"]));
+    const wbSubjectLookup = resolveLookupValue(String(wbSubject), Array.from(new Set(window.__PIM_DATA__.wildberriesCommissions.map((item) => item.subject))), "WB предмет");
+    if (!wbSubjectLookup.value) {
+      warnings.push(`Строка ${rowNumber}: ${wbSubjectLookup.error}`);
+    }
+    if (wbSubjectLookup.warning) warnings.push(`Строка ${rowNumber}: ${wbSubjectLookup.warning}`);
+
+    const ozonProductTypeLookup = resolveLookupValue(
+      String(ozonProductType),
+      Array.from(new Set(window.__PIM_DATA__.ozonCommissions.map((item) => item.productType))),
+      "Ozon тип товара"
+    );
+    if (!ozonProductTypeLookup.value) {
+      warnings.push(`Строка ${rowNumber}: ${ozonProductTypeLookup.error}`);
+    }
+    if (ozonProductTypeLookup.warning) warnings.push(`Строка ${rowNumber}: ${ozonProductTypeLookup.warning}`);
+
+    const preferredWbCategory = stringCell(row, ["WB категория"]);
+    const preferredOzonCategory = stringCell(row, ["Ozon категория", "OZON категория"]);
+    const wbCategory = wbSubjectLookup.value
+      ? resolveWbCategory(wbSubjectLookup.value, preferredWbCategory)
+      : resolveStandaloneCategory(preferredWbCategory, Array.from(new Set(window.__PIM_DATA__.wildberriesCommissions.map((item) => item.category))), "WB категория");
     if (!wbCategory.value) {
       warnings.push(`Строка ${rowNumber}: ${wbCategory.error}`);
-      return;
     }
-    const ozonCategory = resolveOzonCategory(String(ozonProductType), stringCell(row, ["Ozon категория", "OZON категория"]));
+    if (wbCategory.warning) warnings.push(`Строка ${rowNumber}: ${wbCategory.warning}`);
+
+    const ozonCategory = ozonProductTypeLookup.value
+      ? resolveOzonCategory(ozonProductTypeLookup.value, preferredOzonCategory)
+      : resolveStandaloneCategory(preferredOzonCategory, Array.from(new Set(window.__PIM_DATA__.ozonCommissions.map((item) => item.category))), "Ozon категория");
     if (!ozonCategory.value) {
       warnings.push(`Строка ${rowNumber}: ${ozonCategory.error}`);
-      return;
     }
+    if (ozonCategory.warning) warnings.push(`Строка ${rowNumber}: ${ozonCategory.warning}`);
     importedSkus.push({
       id: `import-${rowNumber}-${importedSkus.length + 1}`,
       name: String(name),
       price: Number(price),
-      wbCategory: wbCategory.value,
-      wbSubject: canonicalLookupValue(String(wbSubject), window.__PIM_DATA__.wildberriesCommissions.map((item) => item.subject)),
-      ozonCategory: ozonCategory.value,
-      ozonProductType: canonicalLookupValue(String(ozonProductType), window.__PIM_DATA__.ozonCommissions.map((item) => item.productType)),
+      wbCategory: wbCategory.value ?? preferredWbCategory ?? "",
+      wbSubject: wbSubjectLookup.value ?? String(wbSubject),
+      ozonCategory: ozonCategory.value ?? preferredOzonCategory ?? "",
+      ozonProductType: ozonProductTypeLookup.value ?? String(ozonProductType),
       weightKg: Number(weightKg),
       lengthCm: Number(lengthCm),
       widthCm: Number(widthCm),
@@ -363,9 +386,9 @@ function resolveWbCategory(subject, preferredCategory) {
   const entries = window.__PIM_DATA__.wildberriesCommissions.filter((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(subject));
   if (!entries.length) return { value: null, error: `не найден WB предмет "${subject}" в справочнике комиссий.` };
   if (preferredCategory) {
-    const match = entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(preferredCategory));
-    if (match) return { value: match.category };
-    return { value: null, error: `WB предмет "${subject}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+    const categoryLookup = resolveLookupValue(preferredCategory, Array.from(new Set(entries.map((item) => item.category))), "WB категория");
+    if (categoryLookup.value) return { value: categoryLookup.value, warning: categoryLookup.warning };
+    return { value: null, error: `WB предмет "${subject}" найден, но категория "${preferredCategory}" не совпадает со справочником. ${categoryLookup.error}` };
   }
   const categories = Array.from(new Set(entries.map((item) => item.category)));
   if (categories.length === 1) return { value: categories[0] };
@@ -376,13 +399,18 @@ function resolveOzonCategory(productType, preferredCategory) {
   const entries = window.__PIM_DATA__.ozonCommissions.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(productType));
   if (!entries.length) return { value: null, error: `не найден Ozon тип товара "${productType}" в справочнике комиссий.` };
   if (preferredCategory) {
-    const match = entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(preferredCategory));
-    if (match) return { value: match.category };
-    return { value: null, error: `Ozon тип товара "${productType}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+    const categoryLookup = resolveLookupValue(preferredCategory, Array.from(new Set(entries.map((item) => item.category))), "Ozon категория");
+    if (categoryLookup.value) return { value: categoryLookup.value, warning: categoryLookup.warning };
+    return { value: null, error: `Ozon тип товара "${productType}" найден, но категория "${preferredCategory}" не совпадает со справочником. ${categoryLookup.error}` };
   }
   const categories = Array.from(new Set(entries.filter((item) => !item.category.startsWith("Благотворительность")).map((item) => item.category)));
   if (categories.length === 1) return { value: categories[0] };
   return { value: null, error: `Ozon тип товара "${productType}" найден в нескольких категориях: ${categories.join(", ")}. Добавьте колонку "Ozon категория".` };
+}
+
+function resolveStandaloneCategory(preferredCategory, options, label) {
+  if (!preferredCategory) return { value: null, error: `не заполнено поле "${label}", поэтому его нужно выбрать вручную в таблице SKU.` };
+  return resolveLookupValue(preferredCategory, options, label);
 }
 
 function stringCell(row, names) {
@@ -398,6 +426,70 @@ function numberCell(row, names) {
   if (value == null) return null;
   const numeric = Number(String(value).replace(",", ".").replace(/\s+/g, ""));
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function resolveLookupValue(value, options, label) {
+  const exact = canonicalLookupValue(value, options);
+  if (normalizeLookupValue(exact) === normalizeLookupValue(value) && options.some((option) => normalizeLookupValue(option) === normalizeLookupValue(value))) {
+    return { value: exact };
+  }
+  const autoCorrections = closestAutoCorrectValues(value, options);
+  if (autoCorrections.length === 1) {
+    return {
+      value: autoCorrections[0],
+      warning: `${label} "${value}" заменено на "${autoCorrections[0]}".`
+    };
+  }
+  const suggestions = autoCorrections.length ? autoCorrections : partialLookupSuggestions(value, options);
+  if (suggestions.length > 0) {
+    return {
+      value: null,
+      error: `Не найдено "${value}" в поле "${label}". Возможно: ${suggestions.join(", ")}.`
+    };
+  }
+  return { value: null, error: `Не найдено "${value}" в поле "${label}".` };
+}
+
+function closestAutoCorrectValues(value, options) {
+  const normalized = normalizeLookupValue(value);
+  if (!normalized) return [];
+  const threshold = lookupDistanceThreshold(normalized);
+  return Array.from(new Set(options))
+    .map((option) => ({ option, distance: levenshteinDistance(normalized, normalizeLookupValue(option)) }))
+    .filter((item) => item.distance > 0 && item.distance <= threshold)
+    .sort((left, right) => left.distance - right.distance || left.option.localeCompare(right.option, "ru"))
+    .map((item) => item.option);
+}
+
+function partialLookupSuggestions(value, options) {
+  const normalized = normalizeLookupValue(value);
+  if (normalized.length < 4) return [];
+  return Array.from(new Set(options))
+    .filter((option) => normalizeLookupValue(option).includes(normalized))
+    .sort((left, right) => left.length - right.length || left.localeCompare(right, "ru"))
+    .slice(0, 5);
+}
+
+function lookupDistanceThreshold(value) {
+  if (value.length <= 4) return 1;
+  if (value.length <= 12) return 2;
+  return 3;
+}
+
+function levenshteinDistance(left, right) {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const substitution = previous[rightIndex] + (left[leftIndex] === right[rightIndex] ? 0 : 1);
+      current[rightIndex + 1] = Math.min(current[rightIndex] + 1, previous[rightIndex + 1] + 1, substitution);
+    }
+    previous = current;
+  }
+  return previous[right.length];
 }
 
 async function readZipEntries(buffer) {
@@ -1398,7 +1490,7 @@ function lookupDatalistValues(options) {
 }
 
 function normalizeLookupValue(value) {
-  return String(value).trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+  return String(value).trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
 
 function subjectsForWbCategory(category) {
@@ -1722,6 +1814,11 @@ function calculateScheme(marketplace, scheme, sku) {
       pimMiddleMileAdditional191To350CostWithoutVatRub: middleMile.additional191To350Rub,
       pimMiddleMileFixed351To1000CostWithoutVatRub: middleMile.fixed351To1000Rub,
       pimMiddleMileFixedFrom1001CostWithoutVatRub: middleMile.fixedFrom1001Rub,
+      pimMiddleMileCalculation: {
+        volumeLiters: middleMile.volumeLiters,
+        additionalTo190Liters: middleMile.additionalTo190Liters,
+        additional191To350Liters: middleMile.additional191To350Liters
+      },
       source: "pim",
       vatMode: "without_vat",
       calculationNote: middleMileNote(sku, middleMile)
@@ -1736,6 +1833,17 @@ function calculateScheme(marketplace, scheme, sku) {
       amountRub: lastMile?.totalRub ?? 0,
       pimBaseCostWithoutVatRub: lastMile?.baseRub ?? 0,
       pimAdditionalCostWithoutVatRub: lastMile?.additionalRub ?? 0,
+      pimLastMileCalculation: lastMile
+        ? {
+            city: lastMile.city,
+            zoneLabel: lastMile.zoneLabel,
+            includedKg: lastMile.includedKg,
+            chargeableKg: lastMile.chargeableKg,
+            extraKg: lastMile.extraKg,
+            baseRateRub: lastMile.baseRateRub,
+            extraRateRubPerKg: lastMile.extraRateRubPerKg
+          }
+        : undefined,
       source: "pim",
       vatMode: "without_vat",
       calculationNote: lastMileNote(sku, lastMile)
@@ -1788,11 +1896,41 @@ function applyPimCommercialMarkup(item) {
       settings.presentationMode === "internal" && markup.profitRub > 0
         ? `Себестоимость ${formatNumber(item.amountRub)} ₽ · наценка ${markup.note}`
         : undefined,
-    calculationNote:
-      settings.presentationMode === "internal" || markup.profitRub === 0
-        ? item.calculationNote
-        : `${item.calculationNote ?? "Тариф PIM.Seller."} Коммерческие условия учтены в итоговой ставке.`
+    calculationNote: settings.presentationMode === "internal" ? item.calculationNote : clientPimCalculationNote(item, profitCenter, markup)
   };
+}
+
+function clientPimCalculationNote(item, profitCenter, markup) {
+  if (profitCenter === "middleMile" && item.pimMiddleMileCalculation) {
+    return middleMileCalculationText({
+      baseRub: (item.pimBaseCostWithoutVatRub ?? 0) + markup.profitRub,
+      additionalRub:
+        (item.pimAdditionalCostWithoutVatRub ?? 0) +
+        (markup.additionalTo190ProfitRub ?? 0) +
+        (markup.additional191To350ProfitRub ?? 0) +
+        (markup.fixed351To1000ProfitRub ?? 0) +
+        (markup.fixedFrom1001ProfitRub ?? 0),
+      totalRub: item.amountRub + markup.profitRub,
+      volumeLiters: item.pimMiddleMileCalculation.volumeLiters,
+      additionalTo190Liters: item.pimMiddleMileCalculation.additionalTo190Liters,
+      additional191To350Liters: item.pimMiddleMileCalculation.additional191To350Liters,
+      firstLiterRub: (item.pimMiddleMileFirstLiterCostWithoutVatRub ?? 0) + (markup.firstLiterProfitRub ?? 0),
+      additionalTo190Rub: (item.pimMiddleMileAdditionalTo190CostWithoutVatRub ?? 0) + (markup.additionalTo190ProfitRub ?? 0),
+      additional191To350Rub: (item.pimMiddleMileAdditional191To350CostWithoutVatRub ?? 0) + (markup.additional191To350ProfitRub ?? 0),
+      fixed351To1000Rub: (item.pimMiddleMileFixed351To1000CostWithoutVatRub ?? 0) + (markup.fixed351To1000ProfitRub ?? 0),
+      fixedFrom1001Rub: (item.pimMiddleMileFixedFrom1001CostWithoutVatRub ?? 0) + (markup.fixedFrom1001ProfitRub ?? 0)
+    });
+  }
+  if (profitCenter === "lastMile" && item.pimLastMileCalculation) {
+    const details = item.pimLastMileCalculation;
+    const baseRateRub = (item.pimBaseCostWithoutVatRub ?? details.baseRateRub) + (markup.baseProfitRub ?? 0);
+    const extraRateRubPerKg =
+      details.extraKg > 0
+        ? ((item.pimAdditionalCostWithoutVatRub ?? 0) + (markup.additionalProfitRub ?? 0)) / details.extraKg
+        : details.extraRateRubPerKg + (markup.additionalProfitRub ?? 0);
+    return lastMileCalculationText(details, baseRateRub, extraRateRubPerKg);
+  }
+  return item.calculationNote;
 }
 
 function pimProfitCenter(key) {
@@ -1824,7 +1962,12 @@ function pimMarkup(item, profitCenter) {
     if (fixedFrom1001 > 0) noteParts.push(`1001+ л ${formatNumber(settings.middleMileFrom1001MarkupPercent)}%`);
     return {
       profitRub: firstLiterProfit + additionalTo190Profit + additional191To350Profit + fixed351To1000Profit + fixedFrom1001Profit,
-      note: noteParts.join(", ")
+      note: noteParts.join(", "),
+      firstLiterProfitRub: firstLiterProfit,
+      additionalTo190ProfitRub: additionalTo190Profit,
+      additional191To350ProfitRub: additional191To350Profit,
+      fixed351To1000ProfitRub: fixed351To1000Profit,
+      fixedFrom1001ProfitRub: fixedFrom1001Profit
     };
   }
   if (profitCenter === "lastMile") {
@@ -1834,7 +1977,9 @@ function pimMarkup(item, profitCenter) {
     const additionalProfit = additional * (settings.lastMileAdditionalKgMarkupPercent / 100);
     return {
       profitRub: baseProfit + additionalProfit,
-      note: `до 3 кг ${formatNumber(settings.lastMileBaseMarkupPercent)}%, сверх 3 кг ${formatNumber(settings.lastMileAdditionalKgMarkupPercent)}%`
+      note: `до 3 кг ${formatNumber(settings.lastMileBaseMarkupPercent)}%, сверх 3 кг ${formatNumber(settings.lastMileAdditionalKgMarkupPercent)}%`,
+      baseProfitRub: baseProfit,
+      additionalProfitRub: additionalProfit
     };
   }
   const markupPercent = profitCenter === "warehouse" ? warehouseMarkupPercent(item) : settings.firstMileMarkupPercent;
@@ -1912,9 +2057,8 @@ function skuMetrics(sku) {
 
 function commissionCost(marketplace, scheme, sku) {
   if (marketplace === "wildberries") {
-    const entry =
-      window.__PIM_DATA__.wildberriesCommissions.find((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(sku.wbSubject)) ??
-      window.__PIM_DATA__.wildberriesCommissions.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.wbCategory));
+    if (!normalizeLookupValue(sku.wbSubject)) return null;
+    const entry = window.__PIM_DATA__.wildberriesCommissions.find((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(sku.wbSubject));
     if (!entry) return null;
     const rate = entry.commission[scheme];
     return commissionWithDiscount(sku.price, rate, marketplace, scheme, sku);
@@ -1966,6 +2110,7 @@ function applyCommissionDiscount(rate, discount) {
 }
 
 function findOzonCommissionEntry(sku) {
+  if (!normalizeLookupValue(sku.ozonProductType)) return null;
   const byProductType = window.__PIM_DATA__.ozonCommissions.filter(
     (item) => normalizeLookupValue(item.productType) === normalizeLookupValue(sku.ozonProductType)
   );
@@ -1976,7 +2121,7 @@ function findOzonCommissionEntry(sku) {
       byProductType[0]
     );
   }
-  return window.__PIM_DATA__.ozonCommissions.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(sku.ozonCategory)) ?? null;
+  return null;
 }
 
 function formatRate(rate) {
@@ -2539,15 +2684,20 @@ function middleMileCostParts(sku) {
   let additional191To350Rub = 0;
   let fixed351To1000Rub = 0;
   let fixedFrom1001Rub = 0;
+  let additionalTo190Liters = 0;
+  let additional191To350Liters = 0;
   let totalRub = base;
 
   if (liters > 1 && liters <= 190) {
-    additionalTo190Rub = (liters - 1) * extraTo190;
+    additionalTo190Liters = liters - 1;
+    additionalTo190Rub = additionalTo190Liters * extraTo190;
     totalRub = firstLiterRub + additionalTo190Rub;
   }
   if (liters > 190 && liters <= 350) {
+    additionalTo190Liters = 189;
+    additional191To350Liters = liters - 190;
     additionalTo190Rub = 189 * extraTo190;
-    additional191To350Rub = (liters - 190) * extraTo350;
+    additional191To350Rub = additional191To350Liters * extraTo350;
     totalRub = firstLiterRub + additionalTo190Rub + additional191To350Rub;
   }
   if (liters > 350 && liters <= 1000) {
@@ -2564,6 +2714,9 @@ function middleMileCostParts(sku) {
   return {
     baseRub: money(firstLiterRub),
     additionalRub: money(additionalTo190Rub + additional191To350Rub + fixed351To1000Rub + fixedFrom1001Rub),
+    volumeLiters: liters,
+    additionalTo190Liters,
+    additional191To350Liters,
     firstLiterRub: money(firstLiterRub),
     additionalTo190Rub: money(additionalTo190Rub),
     additional191To350Rub: money(additional191To350Rub),
@@ -2574,12 +2727,28 @@ function middleMileCostParts(sku) {
 }
 
 function middleMileNote(sku, parts) {
-  const liters = skuMetrics(sku).volumeLiters;
-  if (parts.fixedFrom1001Rub > 0) return `Объём ${formatNumber(liters)} л: фиксированный тариф для 1001+ л.`;
-  if (parts.fixed351To1000Rub > 0) return `Объём ${formatNumber(liters)} л: фиксированный тариф для 351-1000 л.`;
-  if (parts.additional191To350Rub > 0) return `Объём ${formatNumber(liters)} л: 1-й литр + 189 л × тариф + сверх 190 л × тариф.`;
-  if (parts.additionalTo190Rub > 0) return `Объём ${formatNumber(liters)} л: 1-й литр + сверх 1 л × тариф.`;
-  return `Объём ${formatNumber(liters)} л: тариф до 1 литра.`;
+  return middleMileCalculationText({ ...parts, volumeLiters: skuMetrics(sku).volumeLiters });
+}
+
+function middleMileCalculationText(parts) {
+  if (parts.fixedFrom1001Rub > 0) {
+    return `Объём ${formatNumber(parts.volumeLiters)} л: фиксированный тариф 1001+ л = ${formatNumber(parts.fixedFrom1001Rub)} ₽. Итого: ${formatNumber(parts.fixedFrom1001Rub)} ₽ без НДС.`;
+  }
+  if (parts.fixed351To1000Rub > 0) {
+    return `Объём ${formatNumber(parts.volumeLiters)} л: фиксированный тариф 351-1000 л = ${formatNumber(parts.fixed351To1000Rub)} ₽. Итого: ${formatNumber(parts.fixed351To1000Rub)} ₽ без НДС.`;
+  }
+
+  const pieces = [`1-й литр = ${formatNumber(parts.firstLiterRub)} ₽`];
+  if (parts.additionalTo190Rub > 0) {
+    const rate = parts.additionalTo190Liters > 0 ? parts.additionalTo190Rub / parts.additionalTo190Liters : 0;
+    pieces.push(`2-190 л: ${formatNumber(parts.additionalTo190Liters)} л × ${formatNumber(rate)} ₽/л = ${formatNumber(parts.additionalTo190Rub)} ₽`);
+  }
+  if (parts.additional191To350Rub > 0) {
+    const rate = parts.additional191To350Liters > 0 ? parts.additional191To350Rub / parts.additional191To350Liters : 0;
+    pieces.push(`191-350 л: ${formatNumber(parts.additional191To350Liters)} л × ${formatNumber(rate)} ₽/л = ${formatNumber(parts.additional191To350Rub)} ₽`);
+  }
+  const totalRub = parts.firstLiterRub + parts.additionalTo190Rub + parts.additional191To350Rub;
+  return `Объём ${formatNumber(parts.volumeLiters)} л: ${pieces.join("; ")}. Итого: ${formatNumber(totalRub)} ₽ без НДС.`;
 }
 
 function pimLastMileCostParts(sku) {
@@ -2588,9 +2757,24 @@ function pimLastMileCostParts(sku) {
   if (!row) return null;
   const baseRub = settings.lastMileZone === "region" ? row.regionBaseRub : row.cityBaseRub;
   const extraRubPerKg = settings.lastMileZone === "region" ? row.regionExtraRubPerKg : row.cityExtraRubPerKg;
+  const zoneLabel = settings.lastMileZone === "region" ? "область/регион" : "город";
+  const metrics = skuMetrics(sku);
+  const extraKg = Math.max(0, metrics.chargeableKg - tariff.includedChargeableKg);
   const baseCostRub = baseRub * tariff.costMultiplier;
-  const additionalCostRub = Math.max(0, skuMetrics(sku).chargeableKg - tariff.includedChargeableKg) * extraRubPerKg * tariff.costMultiplier;
-  return { baseRub: baseCostRub, additionalRub: additionalCostRub, totalRub: baseCostRub + additionalCostRub };
+  const extraCostRubPerKg = extraRubPerKg * tariff.costMultiplier;
+  const additionalCostRub = extraKg * extraCostRubPerKg;
+  return {
+    baseRub: baseCostRub,
+    additionalRub: additionalCostRub,
+    totalRub: baseCostRub + additionalCostRub,
+    city: settings.firstMileCity,
+    zoneLabel,
+    includedKg: tariff.includedChargeableKg,
+    chargeableKg: metrics.chargeableKg,
+    extraKg,
+    baseRateRub: baseCostRub,
+    extraRateRubPerKg: extraCostRubPerKg
+  };
 }
 
 function lastMileNote(sku, parts) {
@@ -2598,7 +2782,13 @@ function lastMileNote(sku, parts) {
   const row = tariff.sellerTariffRows?.find((item) => item.city === settings.firstMileCity);
   const zoneLabel = settings.lastMileZone === "region" ? "область/регион" : "город";
   if (!row || !parts) return `Город ${settings.firstMileCity}, зона ${zoneLabel}: тариф не найден.`;
-  return `Город ${settings.firstMileCity}, зона ${zoneLabel}: до ${formatNumber(tariff.includedChargeableKg)} кг + сверх лимита по расчётному весу ${formatNumber(skuMetrics(sku).chargeableKg)} кг.`;
+  return lastMileCalculationText(parts, parts.baseRateRub, parts.extraRateRubPerKg);
+}
+
+function lastMileCalculationText(details, baseRateRub, extraRateRubPerKg) {
+  const additionalRub = details.extraKg * extraRateRubPerKg;
+  const totalRub = baseRateRub + additionalRub;
+  return `Город ${details.city}, зона ${details.zoneLabel}: до ${formatNumber(details.includedKg)} кг = ${formatNumber(baseRateRub)} ₽; расчётный вес ${formatNumber(details.chargeableKg)} кг, сверх лимита ${formatNumber(details.extraKg)} кг × ${formatNumber(extraRateRubPerKg)} ₽/кг = ${formatNumber(additionalRub)} ₽. Итого: ${formatNumber(totalRub)} ₽ без НДС.`;
 }
 
 function marketplaceLabel(marketplace) {

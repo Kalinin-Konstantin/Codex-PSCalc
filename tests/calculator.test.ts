@@ -11,10 +11,22 @@ import {
   findWbCommission,
   flattenResults
 } from "../src/lib/calculator.ts";
+import { buildClientReportWorksheets, createClientReportXlsx } from "../src/lib/client-report.ts";
 import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
 import type { CalculatorSettings, SkuInput, TariffData } from "../src/lib/types.ts";
 
 const readJson = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf-8"));
+
+function flattenWorksheetValues(worksheet: ReturnType<typeof buildClientReportWorksheets>[number]): string {
+  return worksheet.rows
+    .flat()
+    .map((cell) => {
+      if (cell && typeof cell === "object" && "formula" in cell) return `=${cell.formula ?? ""}`;
+      if (cell && typeof cell === "object" && "value" in cell) return String(cell.value ?? "");
+      return String(cell ?? "");
+    })
+    .join("\n");
+}
 
 const wbSource = readJson("../src/data/generated/wildberries-commissions.json");
 const ozonSource = readJson("../src/data/generated/ozon-commissions.json");
@@ -162,13 +174,14 @@ test("commission lookups use marketplace source files", () => {
 });
 
 test("wildberries commission columns are mapped to FBO/FBS/DBS schemes", () => {
-  assert.equal(wbSource.columnMapping.fbo, "kgvpPickup");
-  assert.equal(wbSource.columnMapping.fbs, "kgvpMarketplace");
-  assert.equal(wbSource.columnMapping.dbs, "kgvpSupplier");
+  assert.equal(wbSource.source, "сomission.xlsx");
+  assert.equal(wbSource.columnMapping.fbo, "Склад WB, %");
+  assert.equal(wbSource.columnMapping.fbs, "Склад продавца - везу на склад WB, %");
+  assert.equal(wbSource.columnMapping.dbs, "Склад продавца - везу самостоятельно до клиента, %");
 
   const first = tariffs.wildberriesCommissions.find((entry) => entry.subject === "Вешалки настенные");
   assert.ok(first);
-  assert.deepEqual(first.commission, { fbo: 0.17, fbs: 0.3, dbs: 0.25 });
+  assert.deepEqual(first.commission, { fbo: 0.265, fbs: 0.3, dbs: 0.25 });
 });
 
 test("wildberries kitchen mixer uses selected category subject and mapped scheme columns", () => {
@@ -181,8 +194,24 @@ test("wildberries kitchen mixer uses selected category subject and mapped scheme
     tariffs.wildberriesCommissions
   );
 
-  assert.deepEqual(mixer, { fbo: 0.15, fbs: 0.26, dbs: 0.15 });
+  assert.deepEqual(mixer, { fbo: 0.22, fbs: 0.255, dbs: 0.15 });
   assert.deepEqual(lowercaseMixer, mixer);
+});
+
+test("wildberries category without subject does not fall back to the first category commission", () => {
+  const categoryOnlySku: SkuInput = {
+    ...skus[0],
+    id: "wb-category-only",
+    wbCategory: "Сантехника",
+    wbSubject: ""
+  };
+
+  assert.equal(findWbCommission(categoryOnlySku, tariffs.wildberriesCommissions), null);
+
+  const result = calculateAllSchemes(categoryOnlySku, settings, tariffs).wildberries.fbo;
+  assert.equal(result.isComplete, false);
+  assert.equal(result.breakdown.find((item) => item.key === "commission")?.amountRub, 0);
+  assert.ok(result.warnings.some((warning) => warning.includes("Не найдена комиссия WB")));
 });
 
 test("ozon commission columns and price bands are mapped to scheme rates with RFBS as DBS", () => {
@@ -235,6 +264,13 @@ test("ozon mixer commission uses selected product type category and SKU price ba
   assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "dbs", tariffs.ozonCommissions), 0.47);
 });
 
+test("ozon category without product type does not fall back to a category commission", () => {
+  assert.equal(
+    findOzonCommission({ price: 15034, ozonCategory: "Миксеры, блендеры, измельчители", ozonProductType: "" }, "fbo", tariffs.ozonCommissions),
+    null
+  );
+});
+
 test("SKU Excel import rows restore marketplace categories from subject and product type", () => {
   const result = buildSkusFromImportRows(
     [
@@ -260,6 +296,119 @@ test("SKU Excel import rows restore marketplace categories from subject and prod
   assert.equal(result.skus[0].wbSubject, "Миксеры");
   assert.equal(result.skus[0].ozonCategory, "Миксеры, блендеры, измельчители");
   assert.equal(result.skus[0].ozonProductType, "Миксер кухонный");
+});
+
+test("SKU Excel import auto-corrects a single close marketplace typo with a warning", () => {
+  const result = buildSkusFromImportRows(
+    [
+      {
+        "Наименование": "Планетарный миксер",
+        "Цена с НДС": 15034,
+        "WB пердмет": "Миксеры",
+        "WB категория": "техника для кухнм",
+        "Тип товара Ozon": "миксер кухоный",
+        "вес": 9.42,
+        "длина": 30.8,
+        "высота": 60,
+        "ширина": 39.6,
+        "штук на паллете": 30
+      }
+    ],
+    tariffs
+  );
+
+  assert.equal(result.skus.length, 1);
+  assert.equal(result.skus[0].wbCategory, "Техника для кухни");
+  assert.equal(result.skus[0].wbSubject, "Миксеры");
+  assert.equal(result.skus[0].ozonProductType, "Миксер кухонный");
+  assert.ok(result.warnings.some((warning) => warning.includes('WB категория "техника для кухнм" заменено на "Техника для кухни"')));
+  assert.ok(result.warnings.some((warning) => warning.includes('Ozon тип товара "миксер кухоный" заменено на "Миксер кухонный"')));
+});
+
+test("SKU Excel import keeps ambiguous close marketplace values as draft rows", () => {
+  const ambiguousTariffs: TariffData = {
+    ...tariffs,
+    wildberriesCommissions: [
+      { category: "Категория 1", subject: "Миксер", commission: { fbo: 0.1, fbs: 0.1, dbs: 0.1 } },
+      { category: "Категория 2", subject: "Миксеры", commission: { fbo: 0.1, fbs: 0.1, dbs: 0.1 } }
+    ]
+  };
+  const result = buildSkusFromImportRows(
+    [
+      {
+        "Наименование": "Планетарный миксер",
+        "Цена с НДС": 15034,
+        "WB предмет": "Миксерл",
+        "Тип товара Ozon": "Миксер кухонный",
+        "вес": 9.42,
+        "длина": 30.8,
+        "высота": 60,
+        "ширина": 39.6,
+        "штук на паллете": 30
+      }
+    ],
+    ambiguousTariffs
+  );
+
+  assert.equal(result.skus.length, 1);
+  assert.equal(result.skus[0].wbSubject, "Миксерл");
+  assert.equal(result.skus[0].wbCategory, "");
+  assert.ok(result.warnings.some((warning) => warning.includes('Не найдено "Миксерл"')));
+  assert.ok(result.warnings.some((warning) => warning.includes("Возможно: Миксер, Миксеры")));
+});
+
+test("SKU Excel import suggests partial marketplace matches without auto-correcting them", () => {
+  const result = buildSkusFromImportRows(
+    [
+      {
+        "Наименование": "Сушка",
+        "Цена с НДС": 4200,
+        "WB предмет": "для овощей",
+        "Тип товара Ozon": "Миксер кухонный",
+        "вес": 9.42,
+        "длина": 30.8,
+        "высота": 60,
+        "ширина": 39.6,
+        "штук на паллете": 30
+      }
+    ],
+    tariffs
+  );
+
+  assert.equal(result.skus.length, 1);
+  assert.equal(result.skus[0].wbSubject, "для овощей");
+  assert.equal(result.skus[0].wbCategory, "");
+  assert.ok(result.warnings.some((warning) => warning.includes('Не найдено "для овощей"')));
+  assert.ok(result.warnings.some((warning) => warning.includes("Возможно: Сушки для овощей")));
+});
+
+test("client Excel report contains summary, formulas and no internal margin fields", () => {
+  const worksheets = buildClientReportWorksheets([skus[0]], { ...settings, presentationMode: "internal" }, tariffs);
+  assert.deepEqual(
+    worksheets.map((sheet) => sheet.name),
+    ["Итоги", "Детализация", "Исходные данные", "Применённые тарифы"]
+  );
+
+  const summaryText = flattenWorksheetValues(worksheets[0]);
+  const detailText = flattenWorksheetValues(worksheets[1]);
+  const tariffText = flattenWorksheetValues(worksheets[3]);
+  const summarySkuRow = worksheets[0].rows[4];
+  const highlightedBestTariffs = summarySkuRow.filter((cell) => cell && typeof cell === "object" && "style" in cell && cell.style === 6);
+
+  assert.match(summaryText, /Лучший WB/);
+  assert.match(summaryText, /Лучший Ozon/);
+  assert.equal(highlightedBestTariffs.length, 2);
+  assert.match(summaryText, /='Детализация'!E\d+/);
+  assert.match(detailText, /=SUM\(E\d+:E\d+\)/);
+  assert.match(detailText, /Операции PIM\.Seller/);
+  assert.match(tariffText, /Объём 41,94 л: 1-й литр = 17,39 ₽; 2-190 л: 40,94 л × 2,83 ₽\/л = 115,87 ₽/);
+  assert.match(tariffText, /Итого: 133,26 ₽ без НДС/);
+  assert.doesNotMatch(`${summaryText}\n${detailText}\n${tariffText}`, /маржа|себестоимость/i);
+
+  const xlsx = createClientReportXlsx([skus[0]], settings, tariffs);
+  assert.equal(xlsx[0], 0x50);
+  assert.equal(xlsx[1], 0x4b);
+  assert.ok(xlsx.length > 1000);
 });
 
 test("ozon commission lookup avoids charity duplicates for regular furniture SKUs", () => {
@@ -415,9 +564,14 @@ test("PIM last mile uses selected first mile city, zone and chargeable weight", 
   const regionResult = calculateAllSchemes(skus[0], { ...settings, firstMileCity: "Москва", lastMileZone: "region" }, tariffs).wildberries.dbs;
   const missingResult = calculateAllSchemes(skus[0], { ...settings, firstMileCity: "Хабаровск", lastMileZone: "region" }, tariffs).wildberries.dbs;
   const part = (result: typeof cityResult, key: string) => result.breakdown.find((item) => item.key === key)?.amountRub;
+  const lastMileNote = cityResult.breakdown.find((item) => item.key === "lastMile")?.calculationNote ?? "";
 
   assert.equal(tariffs.logistics.pimLastMile.weightRule, "chargeableKg = max(actualKg, volumetricKg)");
   assert.equal(part(cityResult, "lastMile"), 434.37);
+  assert.match(lastMileNote, /до 3 кг = 349,5 ₽/);
+  assert.match(lastMileNote, /расчётный вес 8,39 кг/);
+  assert.match(lastMileNote, /сверх лимита 5,39 кг × 15,75 ₽\/кг = 84,87 ₽/);
+  assert.match(lastMileNote, /Итого: 434,37 ₽ без НДС/);
   assert.equal(part(regionResult, "lastMile"), 650.15);
   assert.equal(missingResult.isComplete, false);
   assert.ok(missingResult.warnings.some((warning) => warning.includes("Не найден тариф последней мили")));
@@ -478,8 +632,17 @@ test("PIM commercial markups apply before VAT and stay hidden in client mode", (
   assert.equal(part(fbs, "pimFulfillment")?.amountRub, 19.98);
   assert.equal(part(fbs, "pimLabeling")?.amountRub, 10.48);
   assert.equal(part(fbs, "middleMile")?.amountRub, 173.24);
+  assert.match(part(fbs, "middleMile")?.calculationNote ?? "", /Объём 41,94 л/);
+  assert.match(part(fbs, "middleMile")?.calculationNote ?? "", /1-й литр = 22,61 ₽/);
+  assert.match(part(fbs, "middleMile")?.calculationNote ?? "", /2-190 л: 40,94 л × 3,68 ₽\/л = 150,63 ₽/);
+  assert.match(part(fbs, "middleMile")?.calculationNote ?? "", /Итого: 173,24 ₽ без НДС/);
+  assert.doesNotMatch(part(fbs, "middleMile")?.calculationNote ?? "", /Коммерческие условия учтены/);
   assert.equal(part(dbs, "lastMile")?.amountRub, 608.12);
   assert.equal(part(withVat, "lastMile")?.amountRub, 741.91);
+  assert.match(part(dbs, "lastMile")?.calculationNote ?? "", /до 3 кг = 489,3 ₽/);
+  assert.match(part(dbs, "lastMile")?.calculationNote ?? "", /сверх лимита 5,39 кг × 22,05 ₽\/кг = 118,82 ₽/);
+  assert.match(part(dbs, "lastMile")?.calculationNote ?? "", /Итого: 608,12 ₽ без НДС/);
+  assert.doesNotMatch(part(dbs, "lastMile")?.calculationNote ?? "", /Коммерческие условия учтены/);
   assert.equal(part(fbs, "commission")?.amountRub, 995.9);
   assert.equal(part(fbs, "firstMile")?.internalNote, undefined);
   assert.equal(part(fbs, "firstMile")?.pimProfitCenter, "firstMile");
@@ -703,6 +866,33 @@ test("warehouse receiving markup can be set per visible operation row", () => {
   assert.equal(boxes?.pimProfitWithoutVatRub, 6.57);
 });
 
+test("warehouse shipping uses outbound wording and per-row markup", () => {
+  const shipping = calculateAllSchemes(
+    skus[0],
+    {
+      ...settings,
+      warehouseOperationMarkupPercents: {
+        ...settings.warehouseOperationMarkupPercents,
+        shipping: 0
+      },
+      warehouseOperationRowMarkupPercents: {
+        ...settings.warehouseOperationRowMarkupPercents,
+        "shipping:Ручная выгрузка/отгрузка до 5 кг": 50
+      }
+    },
+    tariffs
+  ).wildberries.fbs.breakdown.find((item) => item.key === "pimShipping");
+
+  assert.equal(shipping?.label, "Отгрузка со склада PIM.Seller");
+  assert.equal(shipping?.pimWarehouseGroup, "shipping");
+  assert.equal(shipping?.pimWarehouseOperationKey, "shipping:Ручная выгрузка/отгрузка до 5 кг");
+  assert.equal(shipping?.pimCostWithoutVatRub, 13.14);
+  assert.equal(shipping?.amountRub, 19.71);
+  assert.equal(shipping?.pimProfitWithoutVatRub, 6.57);
+  assert.match(shipping?.calculationNote ?? "", /Ручная отгрузка до 5 кг/);
+  assert.doesNotMatch(shipping?.calculationNote ?? "", /выгрузка\/отгрузка/i);
+});
+
 test("middle mile markups split by volume tiers", () => {
   const markedSettings: CalculatorSettings = {
     ...settings,
@@ -734,11 +924,15 @@ test("middle mile markups split by volume tiers", () => {
   assert.equal(fixed351?.pimMiddleMileFixed351To1000CostWithoutVatRub, 2826.09);
   assert.equal(fixed351?.amountRub, 3956.53);
   assert.equal(fixed351?.pimProfitWithoutVatRub, 1130.44);
+  assert.match(fixed351?.calculationNote ?? "", /фиксированный тариф 351-1000 л = 3\s*956,53 ₽/);
+  assert.match(fixed351?.calculationNote ?? "", /Итого: 3\s*956,53 ₽ без НДС/);
 
   const fixed1001 = middleMilePart(skuForLiters(1200));
   assert.equal(fixed1001?.pimMiddleMileFixedFrom1001CostWithoutVatRub, 5434.78);
   assert.equal(fixed1001?.amountRub, 8152.17);
   assert.equal(fixed1001?.pimProfitWithoutVatRub, 2717.39);
+  assert.match(fixed1001?.calculationNote ?? "", /фиксированный тариф 1001\+ л = 8\s*152,17 ₽/);
+  assert.match(fixed1001?.calculationNote ?? "", /Итого: 8\s*152,17 ₽ без НДС/);
 });
 
 test("fast handover discounts apply only to FBS with marketplace-specific rules", () => {
@@ -751,8 +945,8 @@ test("fast handover discounts apply only to FBS with marketplace-specific rules"
   );
   const part = (result: typeof withDiscount.wildberries.fbs, key: string) => result.breakdown.find((item) => item.key === key);
 
-  assert.equal(part(withoutDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 17%");
-  assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 17%");
+  assert.equal(part(withoutDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 26.5%");
+  assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 26.5%");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.label, "Комиссия маркетплейса 28.5% (30%-1.5%)");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.amountRub, 946.11);
   assert.match(part(withDiscount.wildberries.fbs, "commission")?.calculationNote ?? "", /Снижение 1\.5% применяется за Быструю сдачу/);
@@ -1041,7 +1235,7 @@ test("scheme totals equal the rounded sum of their breakdown items", () => {
 test("display breakdown follows client article order without changing totals", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const expectedOrders = new Map([
-    [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 17%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
+    [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 26.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
     [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 30%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
     [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 25%", "Операции PIM.Seller", "Последняя миля"]],
     [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],

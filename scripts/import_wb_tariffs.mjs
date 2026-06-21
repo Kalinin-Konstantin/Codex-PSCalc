@@ -28,7 +28,6 @@ const parseRub = (value) => {
 };
 
 const round = (value) => (value == null ? null : Math.round((value + Number.EPSILON) * 100) / 100);
-const percentRate = (value) => (value == null ? null : round(value / 100));
 
 async function readJson(path) {
   return JSON.parse(await readFile(new URL(path, ROOT), "utf8"));
@@ -117,26 +116,11 @@ function pickAcceptance(rows, warehouseName, boxTypeID) {
   return rows.find((row) => row.warehouseName === warehouseName && row.boxTypeID === boxTypeID && row.date?.startsWith(date)) ?? null;
 }
 
-function normalizeCommissions(report) {
-  return report.map((row) => ({
-    category: row.parentName,
-    subject: row.subjectName,
-    subjectID: row.subjectID,
-    parentID: row.parentID,
-    commission: {
-      fbo: percentRate(row.kgvpPickup),
-      fbs: percentRate(row.kgvpMarketplace),
-      dbs: percentRate(row.kgvpSupplier)
-    }
-  }));
-}
-
 const token = await readToken();
-const [boxResponse, palletResponse, acceptanceRows, commissionResponse, logistics] = await Promise.all([
+const [boxResponse, palletResponse, acceptanceRows, logistics] = await Promise.all([
   loadApiJson("wb_box", `https://common-api.wildberries.ru/api/v1/tariffs/box?date=${date}`, token),
   loadApiJson("wb_pallet", `https://common-api.wildberries.ru/api/v1/tariffs/pallet?date=${date}`, token),
   loadApiJson("wb_acceptance", "https://common-api.wildberries.ru/api/tariffs/v1/acceptance/coefficients", token),
-  loadApiJson("wb_commission", "https://common-api.wildberries.ru/api/v1/tariffs/commission?locale=ru", token),
   readJson("src/data/generated/logistics-assumptions.json")
 ]);
 
@@ -148,7 +132,7 @@ const warehouseNames = Array.from(new Set([...boxMap.keys(), ...palletMap.keys()
 
 logistics.wildberriesLogistics = {
   source: "WB API: /api/v1/tariffs/box, /api/v1/tariffs/pallet, /api/tariffs/v1/acceptance/coefficients",
-  commissionSource: "WB API: /api/v1/tariffs/commission",
+  commissionSource: "сomission.xlsx; WB API kgvpPickup is not mapped to FBO",
   status: "official WB API import",
   calculationDate: date,
   importedAt: new Date().toISOString(),
@@ -196,18 +180,6 @@ logistics.wildberriesLogistics = {
   })
 };
 
-const commissions = {
-  source: "WB API: /api/v1/tariffs/commission?locale=ru",
-  generatedAt: new Date().toISOString(),
-  columnMapping: {
-    fbo: "kgvpPickup",
-    fbs: "kgvpMarketplace",
-    dbs: "kgvpSupplier"
-  },
-  entries: normalizeCommissions(commissionResponse.report ?? [])
-};
-
 await writeFile(new URL("logistics-assumptions.json", GENERATED), `${JSON.stringify(logistics, null, 2)}\n`, "utf8");
-await writeFile(new URL("wildberries-commissions.json", GENERATED), `${JSON.stringify(commissions, null, 2)}\n`, "utf8");
 
-console.log(`Imported WB tariffs for ${date}: ${warehouseNames.length} warehouses, ${commissions.entries.length} commission rows`);
+console.log(`Imported WB logistics for ${date}: ${warehouseNames.length} warehouses. WB commissions remain sourced from сomission.xlsx`);

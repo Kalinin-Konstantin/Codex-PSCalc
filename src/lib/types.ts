@@ -89,6 +89,20 @@ export type CostBreakdownItem = {
   pimMiddleMileAdditional191To350CostWithoutVatRub?: number;
   pimMiddleMileFixed351To1000CostWithoutVatRub?: number;
   pimMiddleMileFixedFrom1001CostWithoutVatRub?: number;
+  pimMiddleMileCalculation?: {
+    volumeLiters: number;
+    additionalTo190Liters: number;
+    additional191To350Liters: number;
+  };
+  pimLastMileCalculation?: {
+    city: string;
+    zoneLabel: string;
+    includedKg: number;
+    chargeableKg: number;
+    extraKg: number;
+    baseRateRub: number;
+    extraRateRubPerKg: number;
+  };
 };
 
 export type SchemeResult = {

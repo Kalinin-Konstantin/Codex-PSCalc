@@ -70,26 +70,44 @@ export function buildSkusFromImportRows(rows: RawImportRow[], tariffs: TariffDat
       return;
     }
 
-    const wbCategory = resolveWbCategory(String(wbSubject), stringCell(row, ["WB категория"]), tariffs);
+    const wbSubjectLookup = resolveLookupValue(String(wbSubject), unique(tariffs.wildberriesCommissions.map((item) => item.subject)), "WB предмет");
+    if (!wbSubjectLookup.value) {
+      warnings.push(`Строка ${rowNumber}: ${wbSubjectLookup.error}`);
+    }
+    if (wbSubjectLookup.warning) warnings.push(`Строка ${rowNumber}: ${wbSubjectLookup.warning}`);
+
+    const ozonProductTypeLookup = resolveLookupValue(String(ozonProductType), unique(tariffs.ozonCommissions.map((item) => item.productType)), "Ozon тип товара");
+    if (!ozonProductTypeLookup.value) {
+      warnings.push(`Строка ${rowNumber}: ${ozonProductTypeLookup.error}`);
+    }
+    if (ozonProductTypeLookup.warning) warnings.push(`Строка ${rowNumber}: ${ozonProductTypeLookup.warning}`);
+
+    const preferredWbCategory = stringCell(row, ["WB категория"]);
+    const preferredOzonCategory = stringCell(row, ["Ozon категория", "OZON категория"]);
+    const wbCategory = wbSubjectLookup.value
+      ? resolveWbCategory(wbSubjectLookup.value, preferredWbCategory, tariffs)
+      : resolveStandaloneCategory(preferredWbCategory, unique(tariffs.wildberriesCommissions.map((item) => item.category)), "WB категория");
     if (!wbCategory.value) {
       warnings.push(`Строка ${rowNumber}: ${wbCategory.error}`);
-      return;
     }
+    if (wbCategory.warning) warnings.push(`Строка ${rowNumber}: ${wbCategory.warning}`);
 
-    const ozonCategory = resolveOzonCategory(String(ozonProductType), stringCell(row, ["Ozon категория", "OZON категория"]), tariffs);
+    const ozonCategory = ozonProductTypeLookup.value
+      ? resolveOzonCategory(ozonProductTypeLookup.value, preferredOzonCategory, tariffs)
+      : resolveStandaloneCategory(preferredOzonCategory, unique(tariffs.ozonCommissions.map((item) => item.category)), "Ozon категория");
     if (!ozonCategory.value) {
       warnings.push(`Строка ${rowNumber}: ${ozonCategory.error}`);
-      return;
     }
+    if (ozonCategory.warning) warnings.push(`Строка ${rowNumber}: ${ozonCategory.warning}`);
 
     skus.push({
       id: `import-${rowNumber}-${skus.length + 1}`,
       name: String(name),
       price: Number(price),
-      wbCategory: wbCategory.value,
-      wbSubject: canonicalLookupValue(String(wbSubject), tariffs.wildberriesCommissions.map((item) => item.subject)),
-      ozonCategory: ozonCategory.value,
-      ozonProductType: canonicalLookupValue(String(ozonProductType), tariffs.ozonCommissions.map((item) => item.productType)),
+      wbCategory: wbCategory.value ?? preferredWbCategory ?? "",
+      wbSubject: wbSubjectLookup.value ?? String(wbSubject),
+      ozonCategory: ozonCategory.value ?? preferredOzonCategory ?? "",
+      ozonProductType: ozonProductTypeLookup.value ?? String(ozonProductType),
       weightKg: Number(weightKg),
       lengthCm: Number(lengthCm),
       widthCm: Number(widthCm),
@@ -292,30 +310,39 @@ function parseXml(xml: string): Document {
   return doc;
 }
 
-function resolveWbCategory(subject: string, preferredCategory: string | null, tariffs: TariffData): { value: string | null; error?: string } {
+function resolveWbCategory(subject: string, preferredCategory: string | null, tariffs: TariffData): { value: string | null; error?: string; warning?: string } {
   const entries = tariffs.wildberriesCommissions.filter((item) => sameLookupText(item.subject, subject));
   if (!entries.length) return { value: null, error: `не найден WB предмет "${subject}" в справочнике комиссий.` };
   if (preferredCategory) {
-    const match = entries.find((item) => sameLookupText(item.category, preferredCategory));
-    if (match) return { value: match.category };
-    return { value: null, error: `WB предмет "${subject}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+    const categoryLookup = resolveLookupValue(preferredCategory, unique(entries.map((item) => item.category)), "WB категория");
+    if (categoryLookup.value) return { value: categoryLookup.value, warning: categoryLookup.warning };
+    return { value: null, error: `WB предмет "${subject}" найден, но категория "${preferredCategory}" не совпадает со справочником. ${categoryLookup.error}` };
   }
   const categories = unique(entries.map((item) => item.category));
   if (categories.length === 1) return { value: categories[0] };
   return { value: null, error: `WB предмет "${subject}" найден в нескольких категориях: ${categories.join(", ")}. Добавьте колонку "WB категория".` };
 }
 
-function resolveOzonCategory(productType: string, preferredCategory: string | null, tariffs: TariffData): { value: string | null; error?: string } {
+function resolveOzonCategory(productType: string, preferredCategory: string | null, tariffs: TariffData): { value: string | null; error?: string; warning?: string } {
   const entries = tariffs.ozonCommissions.filter((item) => sameLookupText(item.productType, productType));
   if (!entries.length) return { value: null, error: `не найден Ozon тип товара "${productType}" в справочнике комиссий.` };
   if (preferredCategory) {
-    const match = entries.find((item) => sameLookupText(item.category, preferredCategory));
-    if (match) return { value: match.category };
-    return { value: null, error: `Ozon тип товара "${productType}" найден, но категория "${preferredCategory}" не совпадает со справочником.` };
+    const categoryLookup = resolveLookupValue(preferredCategory, unique(entries.map((item) => item.category)), "Ozon категория");
+    if (categoryLookup.value) return { value: categoryLookup.value, warning: categoryLookup.warning };
+    return { value: null, error: `Ozon тип товара "${productType}" найден, но категория "${preferredCategory}" не совпадает со справочником. ${categoryLookup.error}` };
   }
   const categories = unique(entries.filter((item) => !item.category.startsWith("Благотворительность")).map((item) => item.category));
   if (categories.length === 1) return { value: categories[0] };
   return { value: null, error: `Ozon тип товара "${productType}" найден в нескольких категориях: ${categories.join(", ")}. Добавьте колонку "Ozon категория".` };
+}
+
+function resolveStandaloneCategory(
+  preferredCategory: string | null,
+  options: string[],
+  label: string
+): { value: string | null; error?: string; warning?: string } {
+  if (!preferredCategory) return { value: null, error: `не заполнено поле "${label}", поэтому его нужно выбрать вручную в таблице SKU.` };
+  return resolveLookupValue(preferredCategory, options, label);
 }
 
 function stringCell(row: RawImportRow, names: string[]): string | null {
@@ -346,8 +373,72 @@ function canonicalLookupValue(value: string, options: string[]): string {
   return options.find((option) => normalizeLookupText(option) === normalized) ?? value;
 }
 
+function resolveLookupValue(value: string, options: string[], label: string): { value: string | null; warning?: string; error?: string } {
+  const exact = canonicalLookupValue(value, options);
+  if (sameLookupText(exact, value) && options.some((option) => sameLookupText(option, value))) return { value: exact };
+
+  const autoCorrections = closestAutoCorrectValues(value, options);
+  if (autoCorrections.length === 1) {
+    return {
+      value: autoCorrections[0],
+      warning: `${label} "${value}" заменено на "${autoCorrections[0]}".`
+    };
+  }
+  const suggestions = autoCorrections.length ? autoCorrections : partialLookupSuggestions(value, options);
+  if (suggestions.length > 0) {
+    return {
+      value: null,
+      error: `Не найдено "${value}" в поле "${label}". Возможно: ${suggestions.join(", ")}.`
+    };
+  }
+  return { value: null, error: `Не найдено "${value}" в поле "${label}".` };
+}
+
+function closestAutoCorrectValues(value: string, options: string[]): string[] {
+  const normalized = normalizeLookupText(value);
+  if (!normalized) return [];
+  const threshold = lookupDistanceThreshold(normalized);
+  return unique(options)
+    .map((option) => ({ option, distance: levenshteinDistance(normalized, normalizeLookupText(option)) }))
+    .filter((item) => item.distance > 0 && item.distance <= threshold)
+    .sort((left, right) => left.distance - right.distance || left.option.localeCompare(right.option, "ru"))
+    .map((item) => item.option);
+}
+
+function partialLookupSuggestions(value: string, options: string[]): string[] {
+  const normalized = normalizeLookupText(value);
+  if (normalized.length < 4) return [];
+  return unique(options)
+    .filter((option) => normalizeLookupText(option).includes(normalized))
+    .sort((left, right) => left.length - right.length || left.localeCompare(right, "ru"))
+    .slice(0, 5);
+}
+
+function lookupDistanceThreshold(value: string): number {
+  if (value.length <= 4) return 1;
+  if (value.length <= 12) return 2;
+  return 3;
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const substitution = previous[rightIndex] + (left[leftIndex] === right[rightIndex] ? 0 : 1);
+      current[rightIndex + 1] = Math.min(current[rightIndex] + 1, previous[rightIndex + 1] + 1, substitution);
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
 function normalizeLookupText(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("ru-RU");
+  return value.trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
 
 function unique(values: string[]): string[] {
