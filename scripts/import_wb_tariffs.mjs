@@ -112,8 +112,21 @@ function normalizeAcceptance(row) {
   };
 }
 
+function isSupportedWarehouseName(warehouseName) {
+  return !warehouseName.includes(": Питание");
+}
+
+function isGenericWarehouseAlias(rowWarehouseName, warehouseName) {
+  return rowWarehouseName?.startsWith(`${warehouseName} (`) && !rowWarehouseName.includes(":");
+}
+
 function pickAcceptance(rows, warehouseName, boxTypeID) {
-  return rows.find((row) => row.warehouseName === warehouseName && row.boxTypeID === boxTypeID && row.date?.startsWith(date)) ?? null;
+  const matchesTypeDate = (row) => row.boxTypeID === boxTypeID && row.date?.startsWith(date);
+  return (
+    rows.find((row) => row.warehouseName === warehouseName && matchesTypeDate(row)) ??
+    rows.find((row) => isGenericWarehouseAlias(row.warehouseName, warehouseName) && matchesTypeDate(row)) ??
+    null
+  );
 }
 
 const token = await readToken();
@@ -128,7 +141,9 @@ const boxRows = boxResponse.response?.data?.warehouseList ?? [];
 const palletRows = palletResponse.response?.data?.warehouseList ?? [];
 const boxMap = byWarehouse(boxRows);
 const palletMap = byWarehouse(palletRows);
-const warehouseNames = Array.from(new Set([...boxMap.keys(), ...palletMap.keys()])).sort((a, b) => a.localeCompare(b, "ru"));
+const warehouseNames = Array.from(new Set([...boxMap.keys(), ...palletMap.keys()]))
+  .filter(isSupportedWarehouseName)
+  .sort((a, b) => a.localeCompare(b, "ru"));
 
 logistics.wildberriesLogistics = {
   source: "WB API: /api/v1/tariffs/box, /api/v1/tariffs/pallet, /api/tariffs/v1/acceptance/coefficients",
@@ -154,8 +169,8 @@ logistics.wildberriesLogistics = {
   defaultKtr: 1,
   calculationRules: {
     fboLogistics: "deliveryTariff(volumeLiters, wbSupplyType) * localizationIndex + price * salesDistributionIndex",
-    fboAcceptanceBox: "if coefficient is 0 or 1 and allowUnload=true: 1.7 * volumeLiters * coefficient; otherwise warn that supply is unavailable",
-    fboAcceptancePallet: "if coefficient is 0 or 1 and allowUnload=true: 500 * coefficient / itemsPerPallet; otherwise warn that supply is unavailable",
+    fboAcceptanceBox: "if allowUnload=true and coefficient<=0: free; if coefficient>0: 1.7 * volumeLiters * coefficient; otherwise warn that supply is unavailable",
+    fboAcceptancePallet: "if allowUnload=true and coefficient<=0: free; if coefficient>0: 500 * coefficient / itemsPerPallet; otherwise warn that supply is unavailable",
     fboStorageBox: "(storageBaseRub + max(0, volumeLiters - 1) * storageAdditionalLiterRub) * storageDays",
     fboStoragePallet: "acceptance.storageBaseLiterRub * storageDays / itemsPerPallet; fallback to pallet.storagePalletDayRub only if acceptance storage is unavailable",
     fbsLogistics: "marketplaceDeliveryTariff(volumeLiters) from WB box tariffs",

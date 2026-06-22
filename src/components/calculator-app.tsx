@@ -19,6 +19,8 @@ import {
   originCities,
   ozonCategories,
   ozonDeliveryClusters,
+  ozonOriginClusters,
+  ozonClusterForCity,
   ozonProductTypes,
   ozonProductTypesByCategory,
   tariffData,
@@ -192,10 +194,13 @@ export function CalculatorApp() {
 
   function updateDestinationCity(destinationCity: string) {
     const nextWarehouses = wbWarehousesForDestination(destinationCity);
+    const nextOzonCluster = ozonClusterForCity(destinationCity);
     setSettings({
       ...settings,
       firstMileCity: destinationCity,
-      wbWarehouse: nextWarehouses[0] ?? ""
+      wbWarehouse: nextWarehouses[0] ?? "",
+      ozonOriginCluster: nextOzonCluster,
+      ozonDeliveryCluster: nextOzonCluster
     });
   }
 
@@ -309,19 +314,21 @@ export function CalculatorApp() {
           </div>
           <div className="settings-controls">
             <label>
-              <span>Доставка Ozon</span>
+              <span>Кластер отправки</span>
               <select
-                value={settings.ozonDeliveryMode}
-                onChange={(event) => setSettings({ ...settings, ozonDeliveryMode: event.target.value as CalculatorSettings["ozonDeliveryMode"] })}
+                value={settings.ozonOriginCluster}
+                onChange={(event) => setSettings({ ...settings, ozonOriginCluster: event.target.value })}
               >
-                <option value="local">Локальный кластер</option>
-                <option value="cluster">Выбрать кластер</option>
+                {ozonOriginClusters.map((cluster) => (
+                  <option key={cluster} value={cluster}>
+                    {cluster}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
               <span>Кластер доставки</span>
               <select
-                disabled={settings.ozonDeliveryMode === "local"}
                 value={settings.ozonDeliveryCluster}
                 onChange={(event) => setSettings({ ...settings, ozonDeliveryCluster: event.target.value })}
               >
@@ -1748,7 +1755,7 @@ function BreakdownHelp({ item }: { item: SchemeResult["breakdown"][number] }) {
         <strong>{item.label}</strong>
         <span className="help-text">{note}</span>
         <span className="help-text help-total">
-          Итого: {formatRub(item.amountRub)} {item.vatNote}.
+          {item.isReferenceOnly ? "Справочно" : "Итого"}: {formatRub(item.amountRub)} {item.vatNote}.
         </span>
       </span>
     </span>

@@ -30,6 +30,7 @@ const wbWarehousesByDestination = Object.fromEntries(
     (destinationWarehouseAliases[city] ?? [city]).filter((warehouse) => wbWarehouses.includes(warehouse))
   ])
 );
+const ozonClusterForCity = (city) => logistics.ozonLogistics.cityToCluster[city] ?? logistics.ozonLogistics.originClusters[0] ?? "";
 
 const data = {
   wildberriesCommissions: wb.entries,
@@ -40,6 +41,7 @@ const data = {
   originCities: routeCities.originCities,
   destinationCities: routeCities.destinationCities,
   wbWarehousesByDestination,
+  ozonOriginClusters: logistics.ozonLogistics.originClusters,
   ozonDeliveryClusters: logistics.ozonLogistics.deliveryClusters,
   wbCategories: uniqueSorted(wb.entries.map((item) => item.category)),
   wbSubjects: uniqueSorted(wb.entries.map((item) => item.subject)),
@@ -65,12 +67,12 @@ const data = {
     wbSupplyType: logistics.wildberriesLogistics.defaultSupplyType ?? "box",
     localizationIndex: 1.2,
     salesDistributionIndex: 0.02,
-    ozonDeliveryMode: "local",
-    ozonDeliveryCluster: "Москва, МО и Дальние регионы",
+    ozonOriginCluster: ozonClusterForCity("Москва"),
+    ozonDeliveryCluster: ozonClusterForCity("Москва"),
     storageDays: 30,
     fastHandover: false,
     ozonFastHandoverType: "sc_courier_under_12",
-    vatDisplayMode: "without_vat",
+    vatDisplayMode: "with_vat",
     presentationMode: "client",
     firstMileMarkupPercent: 10,
     warehouseMarkupPercent: 20,

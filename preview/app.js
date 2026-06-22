@@ -113,8 +113,7 @@ function init() {
   renderWbWarehouseSelect();
   $("last-mile-zone").value = settings.lastMileZone;
   $("wb-supply-type").value = settings.wbSupplyType;
-  $("ozon-delivery-mode").value = settings.ozonDeliveryMode;
-  renderOzonDeliveryClusterSelect();
+  renderOzonClusterSelects();
   $("storage-days").value = settings.storageDays;
   $("fast-handover").checked = settings.fastHandover;
   $("ozon-fast-handover-type").value = settings.ozonFastHandoverType;
@@ -129,8 +128,12 @@ function init() {
   $("first-mile-city").addEventListener("change", (event) => {
     settings.firstMileCity = event.target.value;
     const nextWarehouses = wbWarehousesForDestination(settings.firstMileCity);
+    const nextOzonCluster = ozonClusterForCity(settings.firstMileCity);
     settings.wbWarehouse = nextWarehouses[0] ?? "";
+    settings.ozonOriginCluster = nextOzonCluster;
+    settings.ozonDeliveryCluster = nextOzonCluster;
     renderWbWarehouseSelect();
+    renderOzonClusterSelects();
     render();
   });
   $("last-mile-zone").addEventListener("change", (event) => {
@@ -145,9 +148,8 @@ function init() {
     settings.wbSupplyType = event.target.value;
     render();
   });
-  $("ozon-delivery-mode").addEventListener("change", (event) => {
-    settings.ozonDeliveryMode = event.target.value;
-    renderOzonDeliveryClusterSelect();
+  $("ozon-origin-cluster").addEventListener("change", (event) => {
+    settings.ozonOriginCluster = event.target.value;
     render();
   });
   $("ozon-delivery-cluster").addEventListener("change", (event) => {
@@ -898,15 +900,14 @@ function renderWbWarehouseSelect() {
   select.value = warehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
 }
 
-function renderOzonDeliveryClusterSelect() {
-  const select = $("ozon-delivery-cluster");
-  if (settings.ozonDeliveryMode === "local") {
-    select.disabled = true;
-    select.innerHTML = `<option value="">—</option>`;
-    select.value = "";
-    return;
-  }
-  select.disabled = false;
+function ozonClusterForCity(city) {
+  return window.__PIM_DATA__.logistics.ozonLogistics.cityToCluster?.[city] ?? window.__PIM_DATA__.ozonOriginClusters?.[0] ?? "";
+}
+
+function renderOzonClusterSelects() {
+  settings.ozonOriginCluster = settings.ozonOriginCluster || ozonClusterForCity(settings.firstMileCity);
+  settings.ozonDeliveryCluster = settings.ozonDeliveryCluster || settings.ozonOriginCluster;
+  fillSelect("ozon-origin-cluster", window.__PIM_DATA__.ozonOriginClusters, settings.ozonOriginCluster);
   fillSelect("ozon-delivery-cluster", window.__PIM_DATA__.ozonDeliveryClusters, settings.ozonDeliveryCluster);
 }
 
@@ -1643,7 +1644,9 @@ function breakdownItemsForDisplay(result) {
 }
 
 function withDisplayLabel(item) {
-  return displayLabels[item.key] ? { ...item, label: displayLabels[item.key] } : item;
+  const displayLabel = displayLabels[item.key] ?? item.label;
+  const label = item.isReferenceOnly ? `${displayLabel} (справочно)` : displayLabel;
+  return label !== item.label ? { ...item, label } : item;
 }
 
 function aggregateWarehouseOperations(items) {
@@ -1689,7 +1692,7 @@ function breakdownHelpHtml(item) {
       <span class="help-card breakdown-help-card" role="tooltip">
         <strong>${escapeHtml(item.label)}</strong>
         <span class="help-text">${escapeHtml(note)}</span>
-        <span class="help-text help-total">Итого: ${formatRub(item.amountRub)} ${escapeHtml(item.vatNote)}.</span>
+        <span class="help-text help-total">${item.isReferenceOnly ? "Справочно" : "Итого"}: ${formatRub(item.amountRub)} ${escapeHtml(item.vatNote)}.</span>
       </span>
     </span>
   `;
@@ -1787,6 +1790,7 @@ function calculateScheme(marketplace, scheme, sku) {
       amountRub: firstMile ?? 0,
       source: "assumption",
       vatMode: "without_vat",
+      isReferenceOnly: scheme === "fbo",
       calculationNote: firstMileNote(sku)
     },
     {
@@ -1798,7 +1802,11 @@ function calculateScheme(marketplace, scheme, sku) {
       calculationNote: commission == null ? "Комиссия не найдена по категории/типу товара." : commissionCalculationNote(commission)
     }
   ];
-  if (firstMile == null) warnings.push(`Не найден тариф первой мили PIM.Seller для маршрута "${settings.originCity} → ${settings.firstMileCity}"`);
+  if (firstMile == null && scheme === "fbo") {
+    warnings.push(`Предупреждение: не найден справочный тариф первой мили PIM.Seller для маршрута "${settings.originCity} → ${settings.firstMileCity}"`);
+  } else if (firstMile == null) {
+    warnings.push(`Не найден тариф первой мили PIM.Seller для маршрута "${settings.originCity} → ${settings.firstMileCity}"`);
+  }
   breakdown.push(...(marketplace === "wildberries" ? wildberriesCosts(scheme, sku, warnings) : ozonCosts(scheme, sku, warnings)));
   if (scheme === "fbs" || scheme === "dbs") breakdown.push(...pimWarehouseCosts(sku));
   if (scheme === "fbs") {
@@ -1850,7 +1858,7 @@ function calculateScheme(marketplace, scheme, sku) {
     });
   }
   const rounded = normalizeBreakdownForVat(breakdown.map(applyPimCommercialMarkup));
-  const totalRub = money(rounded.reduce((sum, item) => sum + item.amountRub, 0));
+  const totalRub = money(rounded.reduce((sum, item) => sum + (item.isReferenceOnly ? 0 : item.amountRub), 0));
   const priceBasisRub = displayPrice(sku.price);
   return {
     marketplace,
@@ -1881,6 +1889,7 @@ function normalizeBreakdownForVat(breakdown) {
 }
 
 function applyPimCommercialMarkup(item) {
+  if (item.isReferenceOnly) return item;
   const profitCenter = pimProfitCenter(item.key);
   if (!profitCenter) return item;
   const markup = pimMarkup(item, profitCenter);
@@ -2409,6 +2418,7 @@ function wildberriesCosts(scheme, sku, warnings) {
     const delivery = wbFboDeliveryCost(metrics.volumeLiters, warehouse, settings.wbSupplyType, logistics, tariff);
     const storage = wbFboStorageCost(metrics.volumeLiters, sku.itemsPerPallet, settings.storageDays, warehouse, settings.wbSupplyType, tariff);
     const acceptance = wbAcceptanceCost(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType, warnings);
+    const deliverySource = wbFboDeliveryTariffSource(warehouse, settings.wbSupplyType, tariff);
     if (delivery == null) warnings.push(`Не найден тариф логистики WB для склада "${settings.wbWarehouse}" и типа поставки "${wbSupplyLabel(settings.wbSupplyType)}"`);
     if (storage == null) warnings.push(`Не найден тариф хранения WB для склада "${settings.wbWarehouse}" и типа поставки "${wbSupplyLabel(settings.wbSupplyType)}"`);
     return [
@@ -2418,7 +2428,7 @@ function wildberriesCosts(scheme, sku, warnings) {
         amountRub: (delivery ?? 0) * settings.localizationIndex + sku.price * settings.salesDistributionIndex,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `Тариф WB по объёму ${formatNumber(metrics.volumeLiters)} л × индекс ${formatNumber(settings.localizationIndex)} + цена × ${formatRate(settings.salesDistributionIndex)}.`
+        calculationNote: wbFboDeliveryNote(metrics.volumeLiters, sku.price, settings.localizationIndex, settings.salesDistributionIndex, delivery, deliverySource)
       },
       {
         key: "wbAcceptance",
@@ -2426,10 +2436,7 @@ function wildberriesCosts(scheme, sku, warnings) {
         amountRub: acceptance ?? 0,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote:
-          settings.wbSupplyType === "pallet"
-            ? `Монопаллета: 500 ₽ × коэффициент / ${formatNumber(sku.itemsPerPallet)} SKU.`
-            : `Короб: 1,70 ₽ × ${formatNumber(metrics.volumeLiters)} л × коэффициент приёмки.`
+        calculationNote: wbAcceptanceNote(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType, acceptance)
       },
       {
         key: "wbStorage",
@@ -2437,10 +2444,7 @@ function wildberriesCosts(scheme, sku, warnings) {
         amountRub: storage ?? 0,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote:
-          settings.wbSupplyType === "pallet"
-            ? `Паллетное хранение × ${formatNumber(settings.storageDays)} дн. / ${formatNumber(sku.itemsPerPallet)} SKU.`
-            : `Тариф хранения WB по ${formatNumber(metrics.volumeLiters)} л × ${formatNumber(settings.storageDays)} дн.`
+        calculationNote: wbFboStorageNote(metrics.volumeLiters, sku.itemsPerPallet, settings.storageDays, warehouse, settings.wbSupplyType, tariff, storage)
       }
     ];
   }
@@ -2460,7 +2464,7 @@ function wildberriesCosts(scheme, sku, warnings) {
         amountRub: delivery ?? 0,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `${marketplaceWarehouse?.name ?? "Строка WB FBS"}: тариф по объёму ${formatNumber(metrics.volumeLiters)} л.`
+        calculationNote: wbFbsDeliveryNote(metrics.volumeLiters, marketplaceWarehouse, delivery)
       }
     ];
   }
@@ -2498,6 +2502,25 @@ function wbFboDeliveryCost(volumeLiters, warehouse, supplyType, logistics, fallb
     logistics
   );
   return fromAcceptance ?? wbDeliveryCost(volumeLiters, fallbackTariff, logistics, supplyType);
+}
+
+function wbFboDeliveryTariffSource(warehouse, supplyType, fallbackTariff) {
+  const acceptance = warehouse?.acceptance?.[supplyType];
+  if (acceptance?.deliveryBaseLiterRub != null && acceptance.deliveryAdditionalLiterRub != null) {
+    return {
+      name: `${warehouse?.name ?? "склад WB"}, ${wbSupplyLabel(supplyType).toLowerCase()}`,
+      firstLiterRub: acceptance.deliveryBaseLiterRub,
+      additionalLiterRub: acceptance.deliveryAdditionalLiterRub,
+      coefficientPercent: acceptance.deliveryCoefPercent
+    };
+  }
+  if (!fallbackTariff) return null;
+  return {
+    name: `${warehouse?.name ?? "склад WB"}, ${wbSupplyLabel(supplyType).toLowerCase()}`,
+    firstLiterRub: fallbackTariff.deliveryBaseRub,
+    additionalLiterRub: fallbackTariff.deliveryAdditionalLiterRub,
+    coefficientPercent: fallbackTariff.deliveryCoefPercent
+  };
 }
 
 function wbMarketplaceDeliveryCost(volumeLiters, tariff, logistics) {
@@ -2538,12 +2561,90 @@ function wbAcceptanceCost(sku, volumeLiters, warehouse, supplyType, warnings) {
     warnings.push(`Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}"`);
     return null;
   }
-  if (!acceptance.allowUnload || (acceptance.coefficient !== 0 && acceptance.coefficient !== 1)) {
+  if (!acceptance.allowUnload) {
     warnings.push(`Поставка WB на "${warehouse?.name}" типом "${wbSupplyLabel(supplyType)}" недоступна на дату ${acceptance.date.slice(0, 10)}`);
     return null;
   }
+  if (acceptance.coefficient <= 0) return 0;
   if (supplyType === "pallet") return safeDivide(500 * acceptance.coefficient, sku.itemsPerPallet);
   return 1.7 * volumeLiters * acceptance.coefficient;
+}
+
+function wbFboDeliveryNote(volumeLiters, priceRub, localizationIndex, salesDistributionIndex, deliveryRub, source) {
+  if (deliveryRub == null || !source) return "Тариф логистики WB не найден.";
+  const localizedRub = money(deliveryRub * localizationIndex);
+  const salesDistributionRub = money(priceRub * salesDistributionIndex);
+  const totalRub = money(localizedRub + salesDistributionRub);
+  return `${source.name}: ${wbVolumeTariffFormula(volumeLiters, source.firstLiterRub, source.additionalLiterRub, source.coefficientPercent, deliveryRub)} Индекс локализации: ${formatNumber(deliveryRub)} ₽ × ${formatNumber(localizationIndex)} = ${formatNumber(localizedRub)} ₽. Индекс распределения продаж: ${formatNumber(priceRub)} ₽ × ${formatRate(salesDistributionIndex)} = ${formatNumber(salesDistributionRub)} ₽. Итого: ${formatNumber(totalRub)} ₽ с НДС.`;
+}
+
+function wbFbsDeliveryNote(volumeLiters, warehouse, deliveryRub) {
+  if (deliveryRub == null || !warehouse?.box) return `${warehouse?.name ?? "Строка WB FBS"}: тариф логистики WB FBS не найден.`;
+  return `${warehouse.name}: ${wbVolumeTariffFormula(
+    volumeLiters,
+    warehouse.box.marketplaceDeliveryBaseRub,
+    warehouse.box.marketplaceDeliveryAdditionalLiterRub,
+    warehouse.box.marketplaceDeliveryCoefPercent,
+    deliveryRub
+  )}`;
+}
+
+function wbAcceptanceNote(sku, volumeLiters, warehouse, supplyType, amountRub) {
+  const acceptance = warehouse?.acceptance?.[supplyType];
+  if (!acceptance) return `Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}".`;
+  if (!acceptance.allowUnload) return `На дату ${acceptance.date.slice(0, 10)} приёмка WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}" недоступна.`;
+  if (acceptance.coefficient <= 0) {
+    return `Приёмка WB бесплатна на дату ${acceptance.date.slice(0, 10)} для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}". Итого: ${formatNumber(amountRub ?? 0)} ₽.`;
+  }
+  if (supplyType === "pallet") {
+    return `Платная приёмка WB, монопаллета: 500 ₽ × коэффициент приёмки ${formatNumber(acceptance.coefficient)} / ${formatNumber(sku.itemsPerPallet)} SKU = ${formatNumber(amountRub ?? 0)} ₽ с НДС.`;
+  }
+  return `Платная приёмка WB, короб: 1,70 ₽ × ${formatNumber(volumeLiters)} л × коэффициент приёмки ${formatNumber(acceptance.coefficient)} = ${formatNumber(amountRub ?? 0)} ₽ с НДС.`;
+}
+
+function wbFboStorageNote(volumeLiters, itemsPerPallet, storageDays, warehouse, supplyType, fallbackTariff, amountRub) {
+  if (amountRub == null) return `Тариф хранения WB для склада "${warehouse?.name ?? "не выбран"}" не найден.`;
+  const acceptance = warehouse?.acceptance?.[supplyType];
+  if (supplyType === "pallet") {
+    const appliedRate = acceptance?.storageBaseLiterRub ?? fallbackTariff?.storagePalletDayRub ?? null;
+    const coefficientPercent = acceptance?.storageCoefPercent ?? fallbackTariff?.storageCoefPercent ?? null;
+    const baseRate = rateBeforeCoefficient(appliedRate, coefficientPercent);
+    return `Монопаллета, склад ${warehouse?.name ?? "WB"}: ставка ${formatNullableNumber(appliedRate)} ₽/паллету/дн.${coefficientText(coefficientPercent, baseRate)} ${formatNullableNumber(appliedRate)} ₽ × ${formatNumber(storageDays)} дн. / ${formatNumber(itemsPerPallet)} SKU = ${formatNumber(amountRub)} ₽ с НДС.`;
+  }
+  const baseApplied = acceptance?.storageBaseLiterRub ?? fallbackTariff?.storageBaseRub ?? null;
+  const additionalApplied = acceptance?.storageAdditionalLiterRub ?? fallbackTariff?.storageAdditionalLiterRub ?? null;
+  const coefficientPercent = acceptance?.storageCoefPercent ?? fallbackTariff?.storageCoefPercent ?? null;
+  const baseBefore = rateBeforeCoefficient(baseApplied, coefficientPercent);
+  const additionalBefore = rateBeforeCoefficient(additionalApplied, coefficientPercent);
+  const additionalLiters = Math.max(0, volumeLiters - 1);
+  return `Короб, склад ${warehouse?.name ?? "WB"}: базовая ставка ${formatNullableNumber(baseBefore)} ₽/л/дн. за 1-й л и ${formatNullableNumber(additionalBefore)} ₽/л/дн. за доп. литр × коэффициент склада ${formatRate((coefficientPercent ?? 100) / 100)} = ${formatNullableNumber(baseApplied)} ₽ и ${formatNullableNumber(additionalApplied)} ₽ после коэффициента. Объём ${formatFormulaNumber(volumeLiters)} л: (${formatNullableNumber(baseApplied)} ₽ + ${formatFormulaNumber(additionalLiters)} доп. л × ${formatNullableNumber(additionalApplied)} ₽) × ${formatNumber(storageDays)} дн. = ${formatNumber(amountRub)} ₽ с НДС.`;
+}
+
+function wbVolumeTariffFormula(volumeLiters, firstLiterRub, additionalLiterRub, coefficientPercent, resultRub) {
+  const additionalLiters = Math.max(0, volumeLiters - 1);
+  const firstBefore = rateBeforeCoefficient(firstLiterRub, coefficientPercent);
+  const additionalBefore = rateBeforeCoefficient(additionalLiterRub, coefficientPercent);
+  if (volumeLiters <= 1) return `объём ${formatNumber(volumeLiters)} л, тариф ${formatNumber(resultRub)} ₽ с НДС.`;
+  return `(${formatNullableNumber(firstBefore)} ₽ за 1-й л + ${formatFormulaNumber(additionalLiters)} доп. л × ${formatNullableNumber(additionalBefore)} ₽/л) × коэффициент склада ${formatRate((coefficientPercent ?? 100) / 100)} = ${formatNumber(resultRub)} ₽ с НДС. Ставки после коэффициента: ${formatNullableNumber(firstLiterRub)} ₽ за 1-й л и ${formatNullableNumber(additionalLiterRub)} ₽/доп. л.`;
+}
+
+function rateBeforeCoefficient(rateRub, coefficientPercent) {
+  if (rateRub == null) return null;
+  if (coefficientPercent == null || coefficientPercent === 0) return rateRub;
+  return rateRub / (coefficientPercent / 100);
+}
+
+function coefficientText(coefficientPercent, baseRateRub) {
+  if (coefficientPercent == null || baseRateRub == null) return "";
+  return ` (база ${formatNumber(baseRateRub)} ₽ × коэффициент склада ${formatRate(coefficientPercent / 100)})`;
+}
+
+function formatNullableNumber(value) {
+  return value == null ? "0" : formatNumber(value);
+}
+
+function formatFormulaNumber(value) {
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 4 }).format(value);
 }
 
 function wbSupplyLabel(supplyType) {
@@ -2553,8 +2654,8 @@ function wbSupplyLabel(supplyType) {
 function ozonCosts(scheme, sku, warnings) {
   const logistics = window.__PIM_DATA__.logistics.ozonLogistics;
   const metrics = skuMetrics(sku);
-  const originCluster = logistics.cityToCluster[settings.firstMileCity] ?? settings.firstMileCity;
-  const deliveryCluster = settings.ozonDeliveryMode === "local" ? originCluster : settings.ozonDeliveryCluster;
+  const originCluster = settings.ozonOriginCluster || logistics.cityToCluster[settings.firstMileCity] || settings.firstMileCity;
+  const deliveryCluster = settings.ozonDeliveryCluster || originCluster;
   const tariffRow = findOzonLogisticsTariff(metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics);
   const nonlocalMarkupPercent =
     scheme !== "fbo" || originCluster === deliveryCluster ? 0 : logistics.nonlocalMarkups.find((item) => item.deliveryCluster === deliveryCluster)?.percent;
@@ -2572,7 +2673,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `${originCluster} → ${deliveryCluster}: тариф Ozon по объёму ${formatNumber(metrics.volumeLiters)} л и цене товара.`
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
       },
       {
         key: "ozonFboNonlocalMarkup",
@@ -2580,7 +2681,10 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: nonlocalMarkup,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: originCluster === deliveryCluster ? "Локальная продажа: наценка не применяется." : `Цена товара × ${formatRate(nonlocalMarkupPercent ?? 0)}.`
+        calculationNote:
+          originCluster === deliveryCluster
+            ? `Локальная продажа: ${originCluster} = ${deliveryCluster}, наценка 0 ₽.`
+            : `${formatNumber(sku.price)} ₽ × ${formatRate(nonlocalMarkupPercent ?? 0)} = ${formatNumber(nonlocalMarkup)} ₽ с НДС.`
       },
       {
         key: "ozonFboStorage",
@@ -2591,7 +2695,7 @@ function ozonCosts(scheme, sku, warnings) {
         calculationNote:
           storage == null
             ? "Тариф хранения Ozon не найден."
-            : `${formatNumber(storage.paidDays)} платн. дн. × ${formatNumber(metrics.volumeLiters)} л × ${formatNumber(storage.rubPerLiterDay)} ₽.`
+            : `Срок хранения ${formatNumber(settings.storageDays)} дн. - бесплатный период ${formatNumber(storage.freeDays)} дн. = ${formatNumber(storage.paidDays)} платн. дн.; ${formatNumber(storage.paidDays)} × ${formatNumber(metrics.volumeLiters)} л × ${formatNumber(storage.rubPerLiterDay)} ₽/л/дн. = ${formatNumber(storage.amountRub)} ₽ с НДС.`
       },
       {
         key: "ozonPickupPoint",
@@ -2599,7 +2703,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: logistics.pickupPointRub,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `Фиксированная ставка Ozon: ${formatNumber(logistics.pickupPointRub)} ₽.`
+        calculationNote: `Фиксированная ставка Ozon до ПВЗ: ${formatNumber(logistics.pickupPointRub)} ₽ с НДС.`
       }
     ];
   }
@@ -2611,7 +2715,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: logistics.fbsAcceptanceRub,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `Фиксированная ставка Ozon FBS: ${formatNumber(logistics.fbsAcceptanceRub)} ₽.`
+        calculationNote: `Фиксированная приёмка отправления Ozon FBS: ${formatNumber(logistics.fbsAcceptanceRub)} ₽ с НДС.`
       },
       {
         key: "ozonFbsLogistics",
@@ -2619,7 +2723,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `${originCluster} → ${deliveryCluster}: тариф Ozon по объёму ${formatNumber(metrics.volumeLiters)} л и цене товара.`
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
       },
       {
         key: "ozonPickupPoint",
@@ -2627,7 +2731,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: logistics.pickupPointRub,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: `Фиксированная ставка Ozon: ${formatNumber(logistics.pickupPointRub)} ₽.`
+        calculationNote: `Фиксированная ставка Ozon до ПВЗ: ${formatNumber(logistics.pickupPointRub)} ₽ с НДС.`
       }
     ];
   }
@@ -2639,9 +2743,20 @@ function findOzonLogisticsTariff(volumeLiters, price, originCluster, deliveryClu
   const tariff =
     logistics.tariffs.find((item) => item.originCluster === originCluster && item.deliveryCluster === deliveryCluster && matchesVolume(item)) ??
     null;
-  const row = tariff ?? logistics.defaultTariffs.find(matchesVolume) ?? null;
+  const defaultTariff = tariff ? null : logistics.defaultTariffs.find(matchesVolume) ?? null;
+  const row = tariff ?? defaultTariff;
   if (!row) return null;
-  return { rub: price <= 300 ? row.priceTo300Rub : row.priceOver300Rub };
+  return {
+    rub: price <= 300 ? row.priceTo300Rub : row.priceOver300Rub,
+    volumeLabel: row.volumeLabel,
+    priceBandLabel: price <= 300 ? "цена товара до 300 ₽" : "цена товара свыше 300 ₽",
+    sourceLabel: tariff ? `${originCluster} → ${deliveryCluster}` : "резервная тарифная строка Ozon"
+  };
+}
+
+function ozonLogisticsNote(tariffRow, volumeLiters, priceRub, originCluster, deliveryCluster) {
+  if (!tariffRow) return `Тариф Ozon для направления ${originCluster} → ${deliveryCluster}, объёма ${formatNumber(volumeLiters)} л и цены ${formatNumber(priceRub)} ₽ не найден.`;
+  return `${tariffRow.sourceLabel}: объём ${formatNumber(volumeLiters)} л попадает в диапазон "${tariffRow.volumeLabel}", ${tariffRow.priceBandLabel}; тариф = ${formatNumber(tariffRow.rub)} ₽ с НДС.`;
 }
 
 function ozonFboStorageCost(sku, volumeLiters, storageDays, logistics) {

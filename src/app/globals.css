@@ -1198,6 +1198,10 @@ label span {
   box-shadow: var(--shadow);
 }
 
+.matrix-wrap {
+  padding-bottom: 18px;
+}
+
 table {
   width: 100%;
   border-collapse: separate;
@@ -1525,9 +1529,9 @@ summary:hover {
 
 .breakdown-help-card {
   right: -10px;
-  bottom: auto;
+  bottom: calc(100% + 8px);
   left: auto;
-  top: calc(100% + 7px);
+  top: auto;
   z-index: 1000;
   width: 280px;
   max-width: min(280px, calc(100vw - 40px));

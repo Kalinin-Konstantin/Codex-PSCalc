@@ -40,7 +40,7 @@ export type CalculatorSettings = {
   wbSupplyType: WbSupplyType;
   localizationIndex: number;
   salesDistributionIndex: number;
-  ozonDeliveryMode: "local" | "cluster";
+  ozonOriginCluster: string;
   ozonDeliveryCluster: string;
   storageDays: number;
   fastHandover: boolean;
@@ -74,6 +74,7 @@ export type CostBreakdownItem = {
   source: "pim" | "marketplace" | "assumption";
   vatMode: CostVatMode;
   vatNote: string;
+  isReferenceOnly?: boolean;
   calculationNote?: string;
   internalNote?: string;
   pimProfitCenter?: PimProfitCenter;

@@ -9,7 +9,8 @@ import {
   findBestResult,
   findOzonCommission,
   findWbCommission,
-  flattenResults
+  flattenResults,
+  money
 } from "../src/lib/calculator.ts";
 import { buildClientReportWorksheets, createClientReportXlsx } from "../src/lib/client-report.ts";
 import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
@@ -48,7 +49,7 @@ const settings: CalculatorSettings = {
   wbSupplyType: "box",
   localizationIndex: 1,
   salesDistributionIndex: 0,
-  ozonDeliveryMode: "local",
+  ozonOriginCluster: "Москва, МО и Дальние регионы",
   ozonDeliveryCluster: "Москва, МО и Дальние регионы",
   storageDays: 30,
   fastHandover: false,
@@ -399,7 +400,9 @@ test("client Excel report contains summary, formulas and no internal margin fiel
   assert.match(summaryText, /Лучший Ozon/);
   assert.equal(highlightedBestTariffs.length, 2);
   assert.match(summaryText, /='Детализация'!E\d+/);
-  assert.match(detailText, /=SUM\(E\d+:E\d+\)/);
+  assert.match(detailText, /Первая миля \(справочно\)/);
+  assert.match(detailText, /=0/);
+  assert.match(detailText, /=SUM\(E\d+(,E\d+)+\)/);
   assert.match(detailText, /Операции PIM\.Seller/);
   assert.match(tariffText, /Объём 41,94 л: 1-й литр = 17,39 ₽; 2-190 л: 40,94 л × 2,83 ₽\/л = 115,87 ₽/);
   assert.match(tariffText, /Итого: 133,26 ₽ без НДС/);
@@ -621,12 +624,20 @@ test("PIM commercial markups apply before VAT and stay hidden in client mode", (
     lastMileAdditionalKgMarkupPercent: 40
   };
   const fbs = calculateAllSchemes(skus[0], markedSettings, tariffs).wildberries.fbs;
+  const fbo = calculateAllSchemes(skus[0], markedSettings, tariffs).wildberries.fbo;
   const dbs = calculateAllSchemes(skus[0], markedSettings, tariffs).wildberries.dbs;
   const withVat = calculateAllSchemes(skus[0], { ...markedSettings, vatDisplayMode: "with_vat" }, tariffs).wildberries.dbs;
   const internal = calculateAllSchemes(skus[0], { ...markedSettings, presentationMode: "internal" }, tariffs).wildberries.dbs;
   const part = (result: typeof fbs, key: string) => result.breakdown.find((item) => item.key === key);
 
   assert.equal(part(fbs, "firstMile")?.amountRub, 366.56);
+  assert.equal(part(fbo, "firstMile")?.amountRub, 333.23);
+  assert.equal(part(fbo, "firstMile")?.isReferenceOnly, true);
+  assert.equal(part(fbo, "firstMile")?.pimProfitCenter, undefined);
+  assert.equal(
+    fbo.totalRub,
+    Math.round(fbo.breakdown.filter((item) => !item.isReferenceOnly).reduce((sum, item) => sum + item.amountRub, 0) * 100) / 100
+  );
   assert.equal(part(fbs, "pimReceiving")?.amountRub, 8.89);
   assert.equal(part(fbs, "pimStorage")?.amountRub, 42.98);
   assert.equal(part(fbs, "pimFulfillment")?.amountRub, 19.98);
@@ -1113,6 +1124,45 @@ test("Wildberries FBO monopallet storage uses acceptance storage tariff", () => 
   assert.equal(fboPart("wbStorage"), 44.06);
 });
 
+test("Wildberries FBO box uses non-food Краснодар tariff row", () => {
+  const result = calculateAllSchemes(skus[0], { ...settings, wbWarehouse: "Краснодар", wbSupplyType: "box" }, tariffs);
+  const fboPart = (key: string) => result.wildberries.fbo.breakdown.find((item) => item.key === key);
+  const warehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name === "Краснодар");
+  const foodWarehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name.includes(": Питание"));
+  const liters = calculateSkuMetrics(skus[0]).volumeLiters;
+  const expectedDeliveryWithVat = money(
+    (warehouse?.acceptance?.box?.deliveryBaseLiterRub ?? 0) +
+      Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.deliveryAdditionalLiterRub ?? 0)
+  );
+  const expectedStorageWithVat = money(
+    ((warehouse?.acceptance?.box?.storageBaseLiterRub ?? 0) +
+      Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.storageAdditionalLiterRub ?? 0)) *
+      settings.storageDays
+  );
+
+  assert.equal(warehouse?.acceptance?.box?.allowUnload, true);
+  assert.equal(warehouse?.acceptance?.box?.coefficient, -1);
+  assert.equal(warehouse?.acceptance?.box?.deliveryCoefPercent, 175);
+  assert.equal(warehouse?.acceptance?.box?.storageCoefPercent, 165);
+  assert.equal(foodWarehouse, undefined);
+  assert.equal(fboPart("wbAcceptance")?.amountRub, 0);
+  assert.equal(fboPart("wbLastMile")?.amountWithVatRub, expectedDeliveryWithVat);
+  assert.equal(fboPart("wbLastMile")?.amountRub, money(expectedDeliveryWithVat / 1.22));
+  assert.equal(fboPart("wbStorage")?.amountWithVatRub, expectedStorageWithVat);
+  assert.equal(fboPart("wbStorage")?.amountRub, money(expectedStorageWithVat / 1.22));
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /базовая ставка 0,08 ₽\/л\/дн/);
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /коэффициент склада 165%/);
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /Объём 41,944 л/);
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /\(0,13 ₽ \+ 40,944 доп\. л × 0,13 ₽\) × 30 дн\. = 163,58 ₽ с НДС/);
+  assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /46 ₽ за 1-й л \+ 40,944 доп\. л × 14 ₽\/л/);
+  assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /коэффициент склада 175%/);
+  assert.match(fboPart("wbAcceptance")?.calculationNote ?? "", /Приёмка WB бесплатна/);
+  assert.match(fboPart("wbAcceptance")?.calculationNote ?? "", /Итого: 0 ₽/);
+  assert.doesNotMatch(fboPart("wbAcceptance")?.calculationNote ?? "", /allowUnload|коэффициент приёмки -1/);
+  assert.ok(!result.wildberries.fbo.warnings.some((warning) => warning.includes("Не найден тариф приёмки")));
+  assert.ok(!result.wildberries.fbo.warnings.some((warning) => warning.includes("недоступна")));
+});
+
 test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const fboPart = (key: string) => result.ozon.fbo.breakdown.find((item) => item.key === key)?.amountRub;
@@ -1120,7 +1170,7 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   const dbsKeys = result.ozon.dbs.breakdown.map((item) => item.key);
   const nonlocal = calculateAllSchemes(
     skus[0],
-    { ...settings, ozonDeliveryMode: "cluster", ozonDeliveryCluster: "Казань" },
+    { ...settings, ozonDeliveryCluster: "Казань" },
     tariffs
   );
   const nonlocalFbo = nonlocal.ozon.fbo;
@@ -1130,6 +1180,7 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
 
   assert.equal(tariffs.logistics.ozonLogistics.status, "business confirmed Ozon FBO/FBS logistics source");
   assert.equal(tariffs.logistics.ozonLogistics.cityToCluster["Москва"], "Москва, МО и Дальние регионы");
+  assert.ok(tariffs.logistics.ozonLogistics.originClusters.includes(settings.ozonOriginCluster));
   assert.ok(tariffs.logistics.ozonLogistics.deliveryClusters.includes("Казань"));
   assert.equal(tariffs.logistics.ozonLogistics.pickupPointRub, 25);
   assert.equal(tariffs.logistics.ozonLogistics.fbsAcceptanceRub, 20);
@@ -1180,7 +1231,7 @@ test("Ozon FBO storage uses free placement days by product type and Ozon dimensi
 test("Ozon marketplace tariffs are treated as VAT-inclusive source amounts", () => {
   const result = calculateAllSchemes(
     skus[2],
-    { ...settings, ozonDeliveryMode: "cluster", ozonDeliveryCluster: "Казань", storageDays: 60 },
+    { ...settings, ozonDeliveryCluster: "Казань", storageDays: 60 },
     tariffs
   ).ozon;
   const fboPart = (key: string) => result.fbo.breakdown.find((item) => item.key === key);
@@ -1227,7 +1278,7 @@ test("every SKU returns all six marketplace and scheme combinations", () => {
 test("scheme totals equal the rounded sum of their breakdown items", () => {
   const result = calculateAllSchemes(skus[1], settings, tariffs);
   for (const scheme of flattenResults(result)) {
-    const sum = Math.round(scheme.breakdown.reduce((total, item) => total + item.amountRub, 0) * 100) / 100;
+    const sum = Math.round(scheme.breakdown.reduce((total, item) => total + (item.isReferenceOnly ? 0 : item.amountRub), 0) * 100) / 100;
     assert.equal(scheme.totalRub, sum);
   }
 });
@@ -1235,17 +1286,17 @@ test("scheme totals equal the rounded sum of their breakdown items", () => {
 test("display breakdown follows client article order without changing totals", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const expectedOrders = new Map([
-    [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 26.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
+    [result.wildberries.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 26.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
     [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 30%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
     [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 25%", "Операции PIM.Seller", "Последняя миля"]],
-    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Последняя миля"]]
   ]);
 
   for (const schemeResult of flattenResults(result)) {
     const displayItems = breakdownItemsForDisplay(schemeResult);
-    const displaySum = Math.round(displayItems.reduce((total, item) => total + item.amountRub, 0) * 100) / 100;
+    const displaySum = Math.round(displayItems.reduce((total, item) => total + (item.isReferenceOnly ? 0 : item.amountRub), 0) * 100) / 100;
 
     assert.equal(displaySum, schemeResult.totalRub);
     assert.deepEqual(displayItems.map((item) => item.label), expectedOrders.get(schemeResult));
@@ -1261,10 +1312,89 @@ test("display breakdown follows client article order without changing totals", (
   }
 });
 
+test("FBS is a commercial PIM scheme with first mile, warehouse operations and middle mile", () => {
+  const commercialSettings: CalculatorSettings = {
+    ...settings,
+    firstMileMarkupPercent: 10,
+    warehouseOperationMarkupPercents: {
+      receiving: 20,
+      storage: 20,
+      fulfillment: 20,
+      shipping: 20
+    },
+    middleMileFirstLiterMarkupPercent: 20,
+    middleMileAdditionalLiterMarkupPercent: 20,
+    middleMileOver190LiterMarkupPercent: 20,
+    middleMileFrom351To1000MarkupPercent: 20,
+    middleMileFrom1001MarkupPercent: 20
+  };
+  const result = calculateAllSchemes(skus[0], commercialSettings, tariffs);
+  const fbsResults = [result.wildberries.fbs, result.ozon.fbs];
+
+  for (const fbs of fbsResults) {
+    const byKey = new Map(fbs.breakdown.map((item) => [item.key, item]));
+    const warehouseItems = fbs.breakdown.filter((item) => item.pimProfitCenter === "warehouse");
+    const totalFromItems = money(fbs.breakdown.reduce((total, item) => total + item.amountRub, 0));
+
+    assert.equal(fbs.scheme, "fbs");
+    assert.equal(fbs.breakdown.some((item) => item.isReferenceOnly), false);
+    assert.equal(byKey.get("firstMile")?.pimProfitCenter, "firstMile");
+    assert.equal(byKey.get("middleMile")?.pimProfitCenter, "middleMile");
+    assert.ok(warehouseItems.length > 0);
+    assert.equal(byKey.has("lastMile"), false);
+    assert.ok((byKey.get("firstMile")?.pimProfitWithoutVatRub ?? 0) > 0);
+    assert.ok((byKey.get("middleMile")?.pimProfitWithoutVatRub ?? 0) > 0);
+    assert.ok(warehouseItems.some((item) => (item.pimProfitWithoutVatRub ?? 0) > 0));
+    assert.equal(fbs.totalRub, totalFromItems);
+  }
+
+  assert.equal(result.wildberries.fbs.breakdown.some((item) => item.key === "wbFbsLastMile"), true);
+  assert.equal(result.ozon.fbs.breakdown.some((item) => item.key === "ozonFbsLogistics"), true);
+  assert.equal(result.ozon.fbs.breakdown.some((item) => item.key === "ozonPickupPoint"), true);
+});
+
+test("DBS is a commercial PIM scheme with first mile, warehouse operations and last mile", () => {
+  const commercialSettings: CalculatorSettings = {
+    ...settings,
+    firstMileMarkupPercent: 10,
+    warehouseOperationMarkupPercents: {
+      receiving: 20,
+      storage: 20,
+      fulfillment: 20,
+      shipping: 20
+    },
+    lastMileBaseMarkupPercent: 30,
+    lastMileAdditionalKgMarkupPercent: 30
+  };
+  const result = calculateAllSchemes(skus[0], commercialSettings, tariffs);
+  const dbsResults = [result.wildberries.dbs, result.ozon.dbs];
+
+  for (const dbs of dbsResults) {
+    const byKey = new Map(dbs.breakdown.map((item) => [item.key, item]));
+    const warehouseItems = dbs.breakdown.filter((item) => item.pimProfitCenter === "warehouse");
+    const totalFromItems = money(dbs.breakdown.reduce((total, item) => total + item.amountRub, 0));
+
+    assert.equal(dbs.scheme, "dbs");
+    assert.equal(dbs.breakdown.some((item) => item.isReferenceOnly), false);
+    assert.equal(byKey.get("firstMile")?.pimProfitCenter, "firstMile");
+    assert.equal(byKey.get("lastMile")?.pimProfitCenter, "lastMile");
+    assert.ok(warehouseItems.length > 0);
+    assert.equal(byKey.has("middleMile"), false);
+    assert.equal(byKey.has("wbFbsLastMile"), false);
+    assert.equal(byKey.has("ozonFbsLogistics"), false);
+    assert.equal(byKey.has("ozonPickupPoint"), false);
+    assert.equal(byKey.has("ozonFbsAcceptance"), false);
+    assert.ok((byKey.get("firstMile")?.pimProfitWithoutVatRub ?? 0) > 0);
+    assert.ok((byKey.get("lastMile")?.pimProfitWithoutVatRub ?? 0) > 0);
+    assert.ok(warehouseItems.some((item) => (item.pimProfitWithoutVatRub ?? 0) > 0));
+    assert.equal(dbs.totalRub, totalFromItems);
+  }
+});
+
 test("golden furniture examples have stable best options", () => {
   const bestBySku = skus.map((sku) => {
     const best = findBestResult(calculateAllSchemes(sku, settings, tariffs));
     return `${sku.id}:${best.marketplace}:${best.scheme}`;
   });
-  assert.deepEqual(bestBySku, ["hanger:wildberries:dbs", "cabinet:wildberries:dbs", "table:wildberries:dbs"]);
+  assert.deepEqual(bestBySku, ["hanger:wildberries:dbs", "cabinet:ozon:fbo", "table:wildberries:dbs"]);
 });

@@ -172,17 +172,18 @@ function buildClientReportDetailSheet(reportRows) {
 
   reportRows.forEach(({ sku, result }) => {
     flattenResults(result).forEach((schemeResult) => {
-      const startRow = rows.length + 1;
       const warnings = schemeResult.warnings.join("; ");
+      const totalFormulaRefs = [];
       breakdownItemsForDisplay(schemeResult).forEach((item) => {
         const rowNumber = rows.length + 1;
+        if (!item.isReferenceOnly) totalFormulaRefs.push(`E${rowNumber}`);
         rows.push([
           sku.name,
           marketplaceLabel(schemeResult.marketplace),
           schemeResult.scheme.toUpperCase(),
           item.label,
           reportStyled(item.amountRub, reportStyle.money),
-          reportFormula(`IFERROR(E${rowNumber}/${schemeResult.priceBasisRub},0)`, reportStyle.percent),
+          reportFormula(item.isReferenceOnly ? "0" : `IFERROR(E${rowNumber}/${schemeResult.priceBasisRub},0)`, reportStyle.percent),
           item.vatNote,
           item.calculationNote || reportArticleFormulaText(sku, item, schemeResult),
           warnings
@@ -194,7 +195,7 @@ function buildClientReportDetailSheet(reportRows) {
         reportStyled(marketplaceLabel(schemeResult.marketplace), reportStyle.section),
         reportStyled(schemeResult.scheme.toUpperCase(), reportStyle.section),
         reportStyled("Итого", reportStyle.section),
-        reportFormula(`SUM(E${startRow}:E${totalRow - 1})`, reportStyle.totalMoney),
+        reportFormula(totalFormulaRefs.length ? `SUM(${totalFormulaRefs.join(",")})` : "0", reportStyle.totalMoney),
         reportFormula(`IFERROR(E${totalRow}/${schemeResult.priceBasisRub},0)`, reportStyle.totalPercent),
         schemeResult.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС",
         "Итог по статьям выше",
@@ -232,7 +233,8 @@ function buildClientReportInputsSheet(reportRows) {
     ["Тип поставки WB", wbSupplyLabel(settings.wbSupplyType)],
     ["Индекс локализации WB", settings.localizationIndex],
     ["Индекс распределения продаж WB", settings.salesDistributionIndex],
-    ["Кластер доставки Ozon", settings.ozonDeliveryMode === "local" ? "Локальный кластер" : settings.ozonDeliveryCluster],
+    ["Кластер отправки Ozon", settings.ozonOriginCluster],
+    ["Кластер доставки Ozon", settings.ozonDeliveryCluster],
     ["Дней хранения", settings.storageDays],
     ["Быстрая сдача", settings.fastHandover ? "Да" : "Нет"],
     ["Режим НДС", settings.vatDisplayMode === "with_vat" ? "с НДС 22%" : "без НДС"],
