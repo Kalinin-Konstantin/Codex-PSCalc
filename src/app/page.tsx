@@ -35,7 +35,6 @@ export default async function Home({ searchParams }: HomeProps) {
       <UserBar profile={profile} />
       <CalculatorApp
         key={`${params.owner ?? profile.id}:${params.calculation ?? params.seller ?? "new"}`}
-        canOpenInternalAdmin={isApprovedAdmin(profile)}
         workspace={await loadWorkspace(supabase, profile.id, isApprovedAdmin(profile), params)}
       />
     </>

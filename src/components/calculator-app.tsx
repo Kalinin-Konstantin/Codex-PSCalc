@@ -103,7 +103,6 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
 ];
 
 type CalculatorAppProps = {
-  canOpenInternalAdmin?: boolean;
   workspace?: CalculatorWorkspace;
 };
 
@@ -118,7 +117,7 @@ const workspaceMessages: Record<string, string> = {
   save_error: "Не удалось сохранить расчёт."
 };
 
-export function CalculatorApp({ canOpenInternalAdmin = false, workspace }: CalculatorAppProps) {
+export function CalculatorApp({ workspace }: CalculatorAppProps) {
   const [skus, setSkus] = useState<SkuInput[]>(workspace?.loadedCalculation?.snapshot.skus ?? defaultSkus);
   const [settings, setSettings] = useState<CalculatorSettings>(
     workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? defaultSettings
@@ -131,8 +130,8 @@ export function CalculatorApp({ canOpenInternalAdmin = false, workspace }: Calcu
   const availableWbWarehouses = useMemo(() => wbWarehousesForDestination(settings.firstMileCity), [settings.firstMileCity]);
   const selectedWbWarehouse = availableWbWarehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
   const calculationSettings = useMemo<CalculatorSettings>(
-    () => ({ ...settings, presentationMode: canOpenInternalAdmin && isAdminOpen ? "internal" : "client" }),
-    [canOpenInternalAdmin, isAdminOpen, settings]
+    () => ({ ...settings, presentationMode: isAdminOpen ? "internal" : "client" }),
+    [isAdminOpen, settings]
   );
 
   const calculations = useMemo(
@@ -238,11 +237,9 @@ export function CalculatorApp({ canOpenInternalAdmin = false, workspace }: Calcu
             <h1>Калькулятор юнит-экономики</h1>
           </div>
         </div>
-        {canOpenInternalAdmin ? (
-          <button className="admin-trigger" type="button" aria-label="Открыть админ-панель" onClick={() => setIsAdminOpen(true)}>
-            •
-          </button>
-        ) : null}
+        <button className="admin-trigger" type="button" aria-label="Открыть админ-панель" onClick={() => setIsAdminOpen(true)}>
+          •
+        </button>
         <div className="status-strip" aria-label="Сводка">
           <Metric label="SKU" value={String(skus.length)} />
           <Metric label="Среднее" value={formatRub(totals.average)} />
@@ -473,7 +470,7 @@ export function CalculatorApp({ canOpenInternalAdmin = false, workspace }: Calcu
         </div>
       </section>
 
-      {canOpenInternalAdmin && isAdminOpen ? (
+      {isAdminOpen ? (
         <AdminPanel
           calculations={calculations}
           onClose={() => setIsAdminOpen(false)}
