@@ -64,6 +64,8 @@ where email = 'admin@example.com';
 
 ## 5. Перед показом клиенту
 
+Перед первым показом пройти менеджерский сценарий из `docs/demo-manager-script.md`.
+
 Запустить локально:
 
 ```bash
