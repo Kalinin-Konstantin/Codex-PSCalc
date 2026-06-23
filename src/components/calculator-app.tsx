@@ -206,23 +206,14 @@ export function CalculatorApp({ canOpenInternalAdmin = false, workspace }: Calcu
   }
 
   function downloadSkuTemplate() {
-    const url = URL.createObjectURL(createSkuImportTemplateBlob());
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "Шаблон загрузки SKU PIM.Seller.xlsx";
-    link.click();
-    URL.revokeObjectURL(url);
+    triggerXlsxDownload(createSkuImportTemplateBlob(), "Шаблон загрузки SKU PIM.Seller.xlsx");
   }
 
   function downloadClientReport() {
-    const url = URL.createObjectURL(createClientReportBlob(skus, settings, tariffData));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Расчёт PIM.Seller для клиента ${new Date().toISOString().slice(0, 10)}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    triggerXlsxDownload(
+      createClientReportBlob(skus, settings, tariffData),
+      `Расчёт PIM.Seller для клиента ${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
   }
 
   function updateDestinationCity(destinationCity: string) {
@@ -1942,6 +1933,20 @@ function findBestMarketplaceResult(results: SchemeResult[]) {
 
 function sameResult(left: SchemeResult, right: SchemeResult) {
   return left.marketplace === right.marketplace && left.scheme === right.scheme;
+}
+
+function triggerXlsxDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function formatRub(value: number) {
