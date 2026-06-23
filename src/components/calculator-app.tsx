@@ -31,6 +31,8 @@ import {
 } from "../lib/tariffs";
 import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
+import { createSellerAction, saveCalculationAction } from "../app/calculations/actions";
+import type { CalculatorWorkspace } from "../lib/saved-calculations";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, WarehouseOperationGroup } from "../lib/types";
 
 type NumericSkuField = "price" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "itemsPerPallet";
@@ -100,11 +102,31 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
   { value: "boxes", label: "Короба" }
 ];
 
-export function CalculatorApp() {
-  const [skus, setSkus] = useState<SkuInput[]>(defaultSkus);
-  const [settings, setSettings] = useState<CalculatorSettings>(defaultSettings);
+type CalculatorAppProps = {
+  workspace?: CalculatorWorkspace;
+};
+
+const workspaceMessages: Record<string, string> = {
+  seller_created: "Селлер создан.",
+  missing_seller_name: "Введите название селлера.",
+  seller_error: "Не удалось создать селлера.",
+  saved: "Расчёт сохранён.",
+  save_missing_data: "Выберите селлера перед сохранением.",
+  save_bad_snapshot: "Не удалось сохранить: данные расчёта повреждены.",
+  save_forbidden: "Не удалось сохранить: расчёт или селлер недоступны для текущего пользователя.",
+  save_error: "Не удалось сохранить расчёт."
+};
+
+export function CalculatorApp({ workspace }: CalculatorAppProps) {
+  const [skus, setSkus] = useState<SkuInput[]>(workspace?.loadedCalculation?.snapshot.skus ?? defaultSkus);
+  const [settings, setSettings] = useState<CalculatorSettings>(
+    workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? defaultSettings
+  );
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [skuImportStatus, setSkuImportStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [calculationName, setCalculationName] = useState(
+    workspace?.loadedCalculation?.name ?? `Расчёт ${new Date().toLocaleDateString("ru-RU")}`
+  );
   const availableWbWarehouses = useMemo(() => wbWarehousesForDestination(settings.firstMileCity), [settings.firstMileCity]);
   const selectedWbWarehouse = availableWbWarehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
   const calculationSettings = useMemo<CalculatorSettings>(
@@ -127,6 +149,16 @@ export function CalculatorApp() {
     const min = rows.length ? rows.reduce((best, item) => (item.totalRub < best.totalRub ? item : best), rows[0]) : null;
     return { average, min };
   }, [calculations]);
+
+  const snapshotJson = useMemo(
+    () =>
+      JSON.stringify({
+        version: 1,
+        skus,
+        settings
+      }),
+    [settings, skus]
+  );
 
   function updateSku(id: string, patch: Partial<SkuInput>) {
     setSkus((current) => current.map((sku) => (sku.id === id ? { ...sku, ...patch } : sku)));
@@ -224,6 +256,15 @@ export function CalculatorApp() {
           <Metric label="Тарифы WB" value={formatTariffFreshness(wbTariffInfo.calculationDate, wbTariffInfo.importedAt)} />
         </div>
       </header>
+
+      {workspace ? (
+        <WorkspacePanel
+          workspace={workspace}
+          calculationName={calculationName}
+          snapshotJson={snapshotJson}
+          onCalculationNameChange={setCalculationName}
+        />
+      ) : null}
 
       <section className="settings-band" aria-label="Параметры расчёта">
         <div className="settings-group route-group">
@@ -448,28 +489,34 @@ export function CalculatorApp() {
       ) : null}
 
       <section className="sku-editor" aria-label="SKU">
-        <div className="section-heading">
+        <div className="section-heading sku-heading">
           <h2>SKU</h2>
-          <div className="section-actions">
-            <label className="file-button">
-              <input
-                type="file"
-                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(event) => {
-                  void handleSkuImport(event.target.files?.[0] ?? null);
-                  event.currentTarget.value = "";
-                }}
-              />
-              <span>Загрузить Excel</span>
-            </label>
-            <button className="link-button subtle" type="button" onClick={downloadSkuTemplate}>
-              Скачать образец
-            </button>
-            <button className="link-button subtle" type="button" onClick={downloadClientReport}>
-              Скачать расчёт
-            </button>
-            <button type="button" onClick={addSku}>
-              Добавить SKU
+          <div className="section-actions sku-actions">
+            <div className="sku-action-group" aria-label="Импорт и экспорт SKU">
+              <label className="file-button tool-button">
+                <input
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={(event) => {
+                    void handleSkuImport(event.target.files?.[0] ?? null);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <span className="action-symbol" aria-hidden="true">↑</span>
+                <span>Загрузить Excel</span>
+              </label>
+              <button className="link-button subtle tool-button" type="button" onClick={downloadSkuTemplate}>
+                <span className="action-symbol" aria-hidden="true">↓</span>
+                <span>Образец</span>
+              </button>
+              <button className="link-button subtle tool-button" type="button" onClick={downloadClientReport}>
+                <span className="action-symbol" aria-hidden="true">↓</span>
+                <span>Расчёт</span>
+              </button>
+            </div>
+            <button className="primary-action" type="button" onClick={addSku}>
+              <span className="action-symbol" aria-hidden="true">+</span>
+              <span>Добавить SKU</span>
             </button>
           </div>
         </div>
@@ -684,6 +731,124 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function WorkspacePanel({
+  calculationName,
+  onCalculationNameChange,
+  snapshotJson,
+  workspace
+}: {
+  calculationName: string;
+  onCalculationNameChange: (value: string) => void;
+  snapshotJson: string;
+  workspace: CalculatorWorkspace;
+}) {
+  const hasSeller = Boolean(workspace.selectedSellerId);
+  const ownerParam = workspace.canEdit ? "" : `owner=${encodeURIComponent(workspace.ownerId)}&`;
+  const sellerUrl = (sellerId: string) => `/?${ownerParam}seller=${encodeURIComponent(sellerId)}`;
+  const calculationUrl = (sellerId: string, calculationId: string) =>
+    `/?${ownerParam}seller=${encodeURIComponent(sellerId)}&calculation=${encodeURIComponent(calculationId)}`;
+
+  return (
+    <section className="workspace-band" aria-label="Сохранение расчёта">
+      <div className="workspace-main">
+        <div className="settings-title">
+          <span>Рабочее пространство</span>
+          <strong>Селлер и сохранённые расчёты</strong>
+          {!workspace.canEdit && workspace.ownerEmail ? <small>Просмотр расчётов пользователя {workspace.ownerEmail}</small> : null}
+        </div>
+
+        <div className="workspace-controls">
+          <label>
+            <span>Селлер</span>
+            <select
+              value={workspace.selectedSellerId}
+              onChange={(event) => {
+                if (event.target.value) window.location.href = sellerUrl(event.target.value);
+              }}
+              disabled={workspace.sellers.length === 0}
+            >
+              {workspace.sellers.length ? (
+                workspace.sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.name}
+                  </option>
+                ))
+              ) : (
+                <option value="">Сначала создайте селлера</option>
+              )}
+            </select>
+          </label>
+
+          <label>
+            <span>Сохранённый расчёт</span>
+            <select
+              value={workspace.selectedCalculationId}
+              onChange={(event) => {
+                if (!event.target.value) {
+                  window.location.href = sellerUrl(workspace.selectedSellerId);
+                  return;
+                }
+                window.location.href = calculationUrl(workspace.selectedSellerId, event.target.value);
+              }}
+              disabled={!hasSeller || workspace.calculations.length === 0}
+            >
+              <option value="">Новый расчёт</option>
+              {workspace.calculations.map((calculation) => (
+                <option key={calculation.id} value={calculation.id}>
+                  {calculation.name} · {formatDateTimeRu(calculation.updatedAt)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {workspace.canEdit ? (
+            <form className="workspace-save-form" action={saveCalculationAction}>
+              <input type="hidden" name="sellerId" value={workspace.selectedSellerId} />
+              <input type="hidden" name="calculationId" value={workspace.selectedCalculationId} />
+              <input type="hidden" name="snapshot" value={snapshotJson} readOnly />
+              <label>
+                <span>Название расчёта</span>
+                <input
+                  name="calculationName"
+                  value={calculationName}
+                  onChange={(event) => onCalculationNameChange(event.target.value)}
+                  disabled={!hasSeller}
+                  required
+                />
+              </label>
+              <button type="submit" disabled={!hasSeller}>
+                {workspace.selectedCalculationId ? "Сохранить изменения" : "Сохранить расчёт"}
+              </button>
+            </form>
+          ) : (
+            <div className="workspace-save-form readonly-save">
+              <span>Название расчёта</span>
+              <strong>{calculationName}</strong>
+            </div>
+          )}
+        </div>
+
+        {workspace.notice ? <p className="workspace-notice">{workspaceMessages[workspace.notice] ?? "Действие выполнено."}</p> : null}
+      </div>
+
+      {workspace.canEdit ? (
+        <form className="workspace-create-seller" action={createSellerAction}>
+          <label>
+            <span>Новый селлер</span>
+            <input name="sellerName" placeholder="Например, ООО Ромашка" required />
+          </label>
+          <button className="secondary-button" type="submit">Создать</button>
+        </form>
+      ) : (
+        <div className="workspace-create-seller readonly-workspace">
+          <span>Режим просмотра</span>
+          <strong>Сохранение отключено</strong>
+        </div>
+      )}
+    </section>
   );
 }
 

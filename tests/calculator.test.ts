@@ -13,6 +13,7 @@ import {
   money
 } from "../src/lib/calculator.ts";
 import { buildClientReportWorksheets, createClientReportXlsx } from "../src/lib/client-report.ts";
+import { applyCommercialSettings, parseCommercialSettings } from "../src/lib/commercial-settings.ts";
 import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
 import type { CalculatorSettings, SkuInput, TariffData } from "../src/lib/types.ts";
 
@@ -163,6 +164,51 @@ test("SKU dimension classes are calculated separately for WB and Ozon", () => {
     wildberries: "sgt",
     ozon: "standard"
   });
+});
+
+test("commercial default settings affect only commercial fields for new calculations", () => {
+  const next = applyCommercialSettings(settings, {
+    firstMileMarkupPercent: 11,
+    warehouseOperationMarkupPercents: { receiving: 12, storage: 13, fulfillment: 14, shipping: 15 },
+    middleMileFirstLiterMarkupPercent: 21,
+    lastMileBaseMarkupPercent: 31
+  });
+
+  assert.equal(next.originCity, settings.originCity);
+  assert.equal(next.firstMileCity, settings.firstMileCity);
+  assert.equal(next.vatDisplayMode, settings.vatDisplayMode);
+  assert.equal(next.wbWarehouse, settings.wbWarehouse);
+  assert.equal(next.firstMileMarkupPercent, 11);
+  assert.equal(next.warehouseOperationMarkupPercents.receiving, 12);
+  assert.equal(next.warehouseOperationMarkupPercents.storage, 13);
+  assert.equal(next.middleMileFirstLiterMarkupPercent, 21);
+  assert.equal(next.lastMileBaseMarkupPercent, 31);
+
+  const parsed = parseCommercialSettings({
+    firstMileMarkupPercent: "9.5",
+    warehouseSupplyType: "boxes",
+    warehouseOperationMarkupPercents: { receiving: "18", storage: "bad" },
+    warehouseOperationGroups: { receiving: true, storage: false, unrelated: true }
+  });
+
+  assert.equal(parsed.firstMileMarkupPercent, 9.5);
+  assert.equal(parsed.warehouseSupplyType, "boxes");
+  assert.equal(parsed.warehouseOperationMarkupPercents.receiving, 18);
+  assert.equal(parsed.warehouseOperationMarkupPercents.storage, 20);
+  assert.equal(parsed.warehouseOperationGroups.receiving, true);
+  assert.equal(parsed.warehouseOperationGroups.storage, false);
+});
+
+test("Supabase hardening migration keeps calculation seller ownership guard", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/202606220004_harden_calculation_seller_ownership.sql", import.meta.url),
+    "utf-8"
+  );
+
+  assert.match(migration, /calculation_seller_matches_owner/);
+  assert.match(migration, /calculations_seller_owner_guard/);
+  assert.match(migration, /sellers\.owner_id = calculations\.owner_id/);
+  assert.match(migration, /drop policy if exists "calculations_update_own_or_admin"/);
 });
 
 test("commission lookups use marketplace source files", () => {

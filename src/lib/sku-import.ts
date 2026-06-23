@@ -126,7 +126,7 @@ export function buildSkusFromImportRows(rows: RawImportRow[], tariffs: TariffDat
 export function createSkuImportTemplateBlob(): Blob {
   const rows: Array<Array<string | number>> = [
     ["Характеристики товаров"],
-    TEMPLATE_HEADERS,
+    [...TEMPLATE_HEADERS],
     [
       "Планетарный миксер",
       15034,

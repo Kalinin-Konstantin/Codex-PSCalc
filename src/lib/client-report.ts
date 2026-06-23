@@ -486,7 +486,7 @@ function worksheetXml(sheet: WorksheetDefinition): string {
 
 function normalizeCell(cell: WorkbookCell): { value?: CellValue; formula?: string; style?: number } {
   if (cell && typeof cell === "object" && !Array.isArray(cell)) return cell;
-  return { value: cell };
+  return { value: cell as CellValue };
 }
 
 function cellXml(cell: { value?: CellValue; formula?: string; style?: number }, reference: string): string {

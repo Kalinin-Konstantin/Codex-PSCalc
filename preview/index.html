@@ -143,16 +143,19 @@
       </section>
 
       <section>
-        <div class="section-heading">
+        <div class="section-heading sku-heading">
           <h2>SKU</h2>
-          <div class="section-actions">
-            <label class="file-button">
+          <div class="section-actions sku-actions">
+            <div class="sku-action-group" aria-label="Импорт и экспорт SKU">
+            <label class="file-button tool-button">
               <input id="sku-import-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <span class="action-symbol" aria-hidden="true">↑</span>
               <span>Загрузить Excel</span>
             </label>
-            <a id="download-sku-template" class="link-button subtle" href="./sku-import-template.xlsx" download="Шаблон загрузки SKU PIM.Seller.xlsx">Скачать образец</a>
-            <button id="download-client-report" class="link-button subtle" type="button">Скачать расчёт</button>
-            <button id="add-sku" type="button">Добавить SKU</button>
+            <a id="download-sku-template" class="link-button subtle tool-button" href="./sku-import-template.xlsx" download="Шаблон загрузки SKU PIM.Seller.xlsx"><span class="action-symbol" aria-hidden="true">↓</span><span>Образец</span></a>
+            <button id="download-client-report" class="link-button subtle tool-button" type="button"><span class="action-symbol" aria-hidden="true">↓</span><span>Расчёт</span></button>
+            </div>
+            <button id="add-sku" class="primary-action" type="button"><span class="action-symbol" aria-hidden="true">+</span><span>Добавить SKU</span></button>
           </div>
         </div>
         <p id="sku-import-status" class="import-status" hidden></p>

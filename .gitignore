@@ -4,6 +4,9 @@ out/
 dist/
 coverage/
 *.log
+.env
+.env.local
+.env.*.local
 .DS_Store
 **/.DS_Store
 ~$*

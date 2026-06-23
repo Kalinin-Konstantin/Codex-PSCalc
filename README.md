@@ -18,6 +18,8 @@ npm run normalize:tariffs
 npm run dev
 ```
 
+Если нужен режим с авторизацией, сохранением расчетов и админкой, создайте `.env.local` по `.env.example` и примените миграции Supabase из `supabase/migrations/`. Порядок демо-деплоя зафиксирован в `docs/demo-deploy-checklist.md`.
+
 В текущем окружении `npm` может отсутствовать в PATH. Расчётные тесты можно запустить напрямую через Node:
 
 ```bash
