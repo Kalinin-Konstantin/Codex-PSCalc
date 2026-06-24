@@ -6,7 +6,12 @@ export const metadata: Metadata = {
   title: "PIM.Seller Unit Calculator",
   description: "Unit economics calculator for marketplace sellers",
   icons: {
-    icon: "/pim-seller-logo.png"
+    apple: "/favicon-v4.png?v=4",
+    icon: [
+      { url: "/favicon.ico?v=4", sizes: "any" },
+      { url: "/favicon-v4.png?v=4", sizes: "256x256", type: "image/png" }
+    ],
+    shortcut: "/favicon.ico?v=4"
   }
 };
 

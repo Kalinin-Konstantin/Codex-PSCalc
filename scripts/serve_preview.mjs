@@ -11,7 +11,10 @@ const maxPortAttempts = 20;
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8"
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".png": "image/png",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 function createPreviewServer(currentPort) {
