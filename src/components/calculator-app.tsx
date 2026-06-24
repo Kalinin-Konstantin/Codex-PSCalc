@@ -31,7 +31,7 @@ import {
 } from "../lib/tariffs";
 import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
-import { createSellerAction, saveCalculationAction } from "../app/calculations/actions";
+import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
 import type { CalculatorWorkspace } from "../lib/saved-calculations";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, WarehouseOperationGroup } from "../lib/types";
 
@@ -114,7 +114,12 @@ const workspaceMessages: Record<string, string> = {
   save_missing_data: "Выберите селлера перед сохранением.",
   save_bad_snapshot: "Не удалось сохранить: данные расчёта повреждены.",
   save_forbidden: "Не удалось сохранить: расчёт или селлер недоступны для текущего пользователя.",
-  save_error: "Не удалось сохранить расчёт."
+  save_error: "Не удалось сохранить расчёт.",
+  calculation_deleted: "Расчёт удалён.",
+  seller_deleted: "Селлер удалён.",
+  delete_missing_data: "Не выбраны данные для удаления.",
+  delete_forbidden: "Не удалось удалить: запись недоступна для текущего пользователя.",
+  delete_error: "Не удалось удалить запись."
 };
 
 export function CalculatorApp({ workspace }: CalculatorAppProps) {
@@ -752,48 +757,79 @@ function WorkspacePanel({
         </div>
 
         <div className="workspace-controls">
-          <label>
-            <span>Селлер</span>
-            <select
-              value={workspace.selectedSellerId}
-              onChange={(event) => {
-                if (event.target.value) window.location.href = sellerUrl(event.target.value);
-              }}
-              disabled={workspace.sellers.length === 0}
-            >
-              {workspace.sellers.length ? (
-                workspace.sellers.map((seller) => (
-                  <option key={seller.id} value={seller.id}>
-                    {seller.name}
-                  </option>
-                ))
-              ) : (
-                <option value="">Сначала создайте селлера</option>
-              )}
-            </select>
-          </label>
+          <div className="workspace-control-with-action">
+            <label>
+              <span>Селлер</span>
+              <select
+                value={workspace.selectedSellerId}
+                onChange={(event) => {
+                  if (event.target.value) window.location.href = sellerUrl(event.target.value);
+                }}
+                disabled={workspace.sellers.length === 0}
+              >
+                {workspace.sellers.length ? (
+                  workspace.sellers.map((seller) => (
+                    <option key={seller.id} value={seller.id}>
+                      {seller.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">Сначала создайте селлера</option>
+                )}
+              </select>
+            </label>
+            {workspace.canEdit ? (
+              <form
+                action={deleteSellerAction}
+                onSubmit={(event) => {
+                  if (!window.confirm("Удалить селлера и все его расчёты?")) event.preventDefault();
+                }}
+              >
+                <input type="hidden" name="sellerId" value={workspace.selectedSellerId} />
+                <button className="danger-button compact-button" type="submit" disabled={!hasSeller}>
+                  Удалить
+                </button>
+              </form>
+            ) : null}
+          </div>
 
-          <label>
-            <span>Сохранённый расчёт</span>
-            <select
-              value={workspace.selectedCalculationId}
-              onChange={(event) => {
-                if (!event.target.value) {
-                  window.location.href = sellerUrl(workspace.selectedSellerId);
-                  return;
-                }
-                window.location.href = calculationUrl(workspace.selectedSellerId, event.target.value);
-              }}
-              disabled={!hasSeller || workspace.calculations.length === 0}
-            >
-              <option value="">Новый расчёт</option>
-              {workspace.calculations.map((calculation) => (
-                <option key={calculation.id} value={calculation.id}>
-                  {calculation.name} · {formatDateTimeRu(calculation.updatedAt)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="workspace-control-with-action">
+            <label>
+              <span>Сохранённый расчёт</span>
+              <select
+                value={workspace.selectedCalculationId}
+                onChange={(event) => {
+                  if (!event.target.value) {
+                    window.location.href = sellerUrl(workspace.selectedSellerId);
+                    return;
+                  }
+                  window.location.href = calculationUrl(workspace.selectedSellerId, event.target.value);
+                }}
+                disabled={!hasSeller || workspace.calculations.length === 0}
+              >
+                <option value="">Новый расчёт</option>
+                {workspace.calculations.map((calculation) => (
+                  <option key={calculation.id} value={calculation.id}>
+                    {calculation.name} · {formatDateTimeRu(calculation.updatedAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {workspace.canEdit ? (
+              <form
+                action={deleteCalculationAction}
+                onSubmit={(event) => {
+                  if (!window.confirm("Удалить выбранный расчёт?")) event.preventDefault();
+                }}
+              >
+                <input type="hidden" name="sellerId" value={workspace.selectedSellerId} />
+                <input type="hidden" name="calculationId" value={workspace.selectedCalculationId} />
+                <button className="danger-button compact-button" type="submit" disabled={!workspace.selectedCalculationId}>
+                  Удалить
+                </button>
+              </form>
+            ) : null}
+          </div>
 
           {workspace.canEdit ? (
             <form className="workspace-save-form" action={saveCalculationAction}>

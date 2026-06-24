@@ -666,6 +666,17 @@ th span {
   align-items: end;
 }
 
+.workspace-control-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.workspace-control-with-action form {
+  display: flex;
+}
+
 .workspace-save-form {
   display: grid;
   grid-template-columns: minmax(170px, 1fr) auto;
@@ -701,6 +712,22 @@ th span {
   font-size: 13px;
   font-weight: 700;
   padding: 8px 10px;
+}
+
+button.danger-button {
+  border-color: rgba(185, 28, 28, 0.22);
+  background: #fff7f7;
+  color: #991b1b;
+}
+
+button.danger-button:hover {
+  border-color: rgba(185, 28, 28, 0.38);
+  background: #fee2e2;
+}
+
+button.compact-button {
+  min-height: 38px;
+  padding-inline: 12px;
 }
 
 .settings-band {

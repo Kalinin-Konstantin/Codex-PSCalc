@@ -211,6 +211,17 @@ test("Supabase hardening migration keeps calculation seller ownership guard", ()
   assert.match(migration, /drop policy if exists "calculations_update_own_or_admin"/);
 });
 
+test("Supabase MVP migration allows users to delete own sellers and calculations", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/202606220002_sellers_calculations.sql", import.meta.url),
+    "utf-8"
+  );
+
+  assert.match(migration, /sellers_delete_own_or_admin/);
+  assert.match(migration, /calculations_delete_own_or_admin/);
+  assert.match(migration, /for delete/);
+});
+
 test("commission lookups use marketplace source files", () => {
   const wb = findWbCommission(skus[0], tariffs.wildberriesCommissions);
   assert.ok(wb.fbo > 0);

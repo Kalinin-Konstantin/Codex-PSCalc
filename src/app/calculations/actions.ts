@@ -105,3 +105,71 @@ export async function saveCalculationAction(formData: FormData) {
 
   redirect(`/?seller=${sellerId}&calculation=${data.id}&workspace=saved`);
 }
+
+export async function deleteCalculationAction(formData: FormData) {
+  const { supabase, profile } = await getCurrentProfile();
+  if (!canUseCalculator(profile)) redirect("/");
+
+  const sellerId = field(formData, "sellerId");
+  const calculationId = field(formData, "calculationId");
+
+  if (!sellerId || !calculationId) {
+    redirect(sellerId ? `/?seller=${sellerId}&workspace=delete_missing_data` : "/?workspace=delete_missing_data");
+  }
+
+  const { data: calculation } = await supabase
+    .from("calculations")
+    .select("id,seller_id")
+    .eq("id", calculationId)
+    .eq("owner_id", profile.id)
+    .maybeSingle();
+
+  if (!calculation?.id || calculation.seller_id !== sellerId) {
+    redirect(`/?seller=${sellerId}&workspace=delete_forbidden`);
+  }
+
+  const { error } = await supabase
+    .from("calculations")
+    .delete()
+    .eq("id", calculationId)
+    .eq("owner_id", profile.id);
+
+  if (error) redirect(`/?seller=${sellerId}&calculation=${calculationId}&workspace=delete_error`);
+  redirect(`/?seller=${sellerId}&workspace=calculation_deleted`);
+}
+
+export async function deleteSellerAction(formData: FormData) {
+  const { supabase, profile } = await getCurrentProfile();
+  if (!canUseCalculator(profile)) redirect("/");
+
+  const sellerId = field(formData, "sellerId");
+  if (!sellerId) redirect("/?workspace=delete_missing_data");
+
+  const { data: seller } = await supabase
+    .from("sellers")
+    .select("id")
+    .eq("id", sellerId)
+    .eq("owner_id", profile.id)
+    .maybeSingle();
+
+  if (!seller?.id) {
+    redirect("/?workspace=delete_forbidden");
+  }
+
+  const { error: calculationError } = await supabase
+    .from("calculations")
+    .delete()
+    .eq("seller_id", sellerId)
+    .eq("owner_id", profile.id);
+
+  if (calculationError) redirect(`/?seller=${sellerId}&workspace=delete_error`);
+
+  const { error } = await supabase
+    .from("sellers")
+    .delete()
+    .eq("id", sellerId)
+    .eq("owner_id", profile.id);
+
+  if (error) redirect(`/?seller=${sellerId}&workspace=delete_error`);
+  redirect("/?workspace=seller_deleted");
+}
