@@ -101,6 +101,23 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
   { value: "boxes", label: "Короба" }
 ];
 
+function createBlankSku(): SkuInput {
+  return {
+    id: "blank-sku",
+    name: "",
+    price: 0,
+    wbCategory: "",
+    wbSubject: "",
+    ozonCategory: "",
+    ozonProductType: "",
+    weightKg: 0,
+    lengthCm: 0,
+    widthCm: 0,
+    heightCm: 0,
+    itemsPerPallet: 0
+  };
+}
+
 type CalculatorAppProps = {
   tariffs?: TariffData;
   workspace?: CalculatorWorkspace;
@@ -126,7 +143,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
   const activeTariffData = tariffs ?? tariffData;
   const fallbackDefaultSettings = useMemo(() => buildDefaultSettings(activeTariffData), [activeTariffData]);
   const wbTariffInfo = activeTariffData.logistics.wildberriesLogistics;
-  const [skus, setSkus] = useState<SkuInput[]>(workspace?.loadedCalculation?.snapshot.skus ?? defaultSkus);
+  const [skus, setSkus] = useState<SkuInput[]>(() => workspace?.loadedCalculation?.snapshot.skus ?? [createBlankSku()]);
   const [settings, setSettings] = useState<CalculatorSettings>(
     workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? fallbackDefaultSettings
   );
@@ -1273,7 +1290,7 @@ function summarizePimMargin(result: SchemeResult, vatDisplayMode: CalculatorSett
 }
 
 function NumberInput({ value, onChange }: { value: number; onChange: (value: string) => void }) {
-  return <input min="0" step="0.01" type="number" value={value} onChange={(event) => onChange(event.target.value)} />;
+  return <input min="0" step="0.01" type="number" value={value || ""} onChange={(event) => onChange(event.target.value)} />;
 }
 
 function WarehousePriceListModal({
