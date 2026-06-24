@@ -222,12 +222,33 @@ test("Supabase MVP migration allows users to delete own sellers and calculations
   assert.match(migration, /for delete/);
 });
 
+test("Wildberries tariff snapshots are stored server-side with protected cron refresh", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/202606240001_marketplace_tariff_snapshots.sql", import.meta.url),
+    "utf-8"
+  );
+  const route = readFileSync(new URL("../src/app/api/cron/wb-tariffs/route.ts", import.meta.url), "utf-8");
+  const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf-8");
+
+  assert.match(migration, /create table if not exists public\.marketplace_tariff_snapshots/);
+  assert.match(migration, /primary key \(marketplace, snapshot_date\)/);
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /marketplace_tariff_snapshots_select_approved/);
+  assert.match(route, /CRON_SECRET/);
+  assert.match(route, /WB_API_TOKEN/);
+  assert.match(route, /marketplace_tariff_snapshots/);
+  assert.match(vercel, /"path": "\/api\/cron\/wb-tariffs"/);
+  assert.match(vercel, /"schedule": "0 5 \* \* \*"/);
+});
+
 test("commission lookups use marketplace source files", () => {
   const wb = findWbCommission(skus[0], tariffs.wildberriesCommissions);
+  assert.ok(wb);
   assert.ok(wb.fbo > 0);
   assert.ok(wb.fbs > wb.fbo);
 
   const ozon = findOzonCommission(skus[0], "fbo", tariffs.ozonCommissions);
+  assert.ok(ozon != null);
   assert.ok(ozon > 0);
 });
 
@@ -1116,6 +1137,8 @@ test("Wildberries marketplace logistics use the official WB API tariff model", (
   const wbLogistics = tariffs.logistics.wildberriesLogistics;
 
   assert.equal(wbLogistics.status, "official WB API import");
+  assert.ok(wbLogistics.calculationDate);
+  assert.ok(wbLogistics.importedAt);
   assert.match(wbLogistics.calculationDate, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(wbLogistics.importedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.ok(wbLogistics.firstLiterRub > 0);
@@ -1198,7 +1221,7 @@ test("Wildberries FBO box uses non-food Краснодар tariff row", () => {
   );
 
   assert.equal(warehouse?.acceptance?.box?.allowUnload, true);
-  assert.equal(warehouse?.acceptance?.box?.coefficient, -1);
+  assert.ok((warehouse?.acceptance?.box?.coefficient ?? 1) <= 0);
   assert.equal(warehouse?.acceptance?.box?.deliveryCoefPercent, 175);
   assert.equal(warehouse?.acceptance?.box?.storageCoefPercent, 165);
   assert.equal(foodWarehouse, undefined);

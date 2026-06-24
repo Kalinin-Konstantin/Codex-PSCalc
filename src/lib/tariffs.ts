@@ -37,55 +37,69 @@ const destinationWarehouseAliases: Record<string, string[]> = {
   "Хабаровск": ["Хабаровск", "СЦ Хабаровск"]
 };
 
-const allWbWarehouses = tariffData.logistics.wildberriesLogistics.warehouses.map((item) => item.name);
-
-export function wbWarehousesForDestination(destinationCity: string): string[] {
+export function wbWarehousesForDestinationWithTariffs(tariffs: TariffData, destinationCity: string): string[] {
+  const allWbWarehouses = tariffs.logistics.wildberriesLogistics.warehouses.map((item) => item.name);
   const aliases = destinationWarehouseAliases[destinationCity] ?? [destinationCity];
   return aliases.filter((warehouse) => allWbWarehouses.includes(warehouse));
 }
 
-export const defaultSettings: CalculatorSettings = {
-  originCity: "Москва",
-  firstMileCity: "Москва",
-  lastMileZone: "city",
-  wbWarehouse: wbWarehousesForDestination("Москва")[0] ?? "",
-  wbSupplyType: tariffData.logistics.wildberriesLogistics.defaultSupplyType ?? "box",
-  localizationIndex: 1.2,
-  salesDistributionIndex: 0.02,
-  ozonOriginCluster: ozonClusterForCity("Москва"),
-  ozonDeliveryCluster: ozonClusterForCity("Москва"),
-  storageDays: 30,
-  fastHandover: false,
-  ozonFastHandoverType: "sc_courier_under_12",
-  vatDisplayMode: "with_vat",
-  presentationMode: "client",
-  firstMileMarkupPercent: 10,
-  warehouseMarkupPercent: 20,
-  warehouseSupplyType: "mono_pallet",
-  warehouseOperationGroups: {
-    receiving: true,
-    storage: true,
-    fulfillment: true,
-    shipping: true
-  },
-  warehouseOperationMarkupPercents: {
-    receiving: 20,
-    storage: 20,
-    fulfillment: 20,
-    shipping: 20
-  },
-  warehouseOperationRowMarkupPercents: {},
-  warehouseReceivingMarkupPercents: {},
-  warehouseStorageMarkupPercents: {},
-  warehouseFulfillmentExtraOperations: {},
-  middleMileFirstLiterMarkupPercent: 20,
-  middleMileAdditionalLiterMarkupPercent: 30,
-  middleMileOver190LiterMarkupPercent: 30,
-  middleMileFrom351To1000MarkupPercent: 20,
-  middleMileFrom1001MarkupPercent: 20,
-  lastMileBaseMarkupPercent: 30,
-  lastMileAdditionalKgMarkupPercent: 30
-};
+export function wbWarehousesForDestination(destinationCity: string): string[] {
+  return wbWarehousesForDestinationWithTariffs(tariffData, destinationCity);
+}
+
+export function ozonClusterForCityWithTariffs(tariffs: TariffData, city: string): string {
+  return tariffs.logistics.ozonLogistics.cityToCluster[city] ?? tariffs.logistics.ozonLogistics.originClusters[0] ?? "";
+}
+
+export function buildDefaultSettings(tariffs: TariffData = tariffData): CalculatorSettings {
+  const defaultCity = "Москва";
+  const defaultOzonCluster = ozonClusterForCityWithTariffs(tariffs, defaultCity);
+
+  return {
+    originCity: defaultCity,
+    firstMileCity: defaultCity,
+    lastMileZone: "city",
+    wbWarehouse: wbWarehousesForDestinationWithTariffs(tariffs, defaultCity)[0] ?? "",
+    wbSupplyType: tariffs.logistics.wildberriesLogistics.defaultSupplyType ?? "box",
+    localizationIndex: 1.2,
+    salesDistributionIndex: 0.02,
+    ozonOriginCluster: defaultOzonCluster,
+    ozonDeliveryCluster: defaultOzonCluster,
+    storageDays: 30,
+    fastHandover: false,
+    ozonFastHandoverType: "sc_courier_under_12",
+    vatDisplayMode: "with_vat",
+    presentationMode: "client",
+    firstMileMarkupPercent: 10,
+    warehouseMarkupPercent: 20,
+    warehouseSupplyType: "mono_pallet",
+    warehouseOperationGroups: {
+      receiving: true,
+      storage: true,
+      fulfillment: true,
+      shipping: true
+    },
+    warehouseOperationMarkupPercents: {
+      receiving: 20,
+      storage: 20,
+      fulfillment: 20,
+      shipping: 20
+    },
+    warehouseOperationRowMarkupPercents: {},
+    warehouseReceivingMarkupPercents: {},
+    warehouseStorageMarkupPercents: {},
+    warehouseFulfillmentExtraOperations: {},
+    middleMileFirstLiterMarkupPercent: 20,
+    middleMileAdditionalLiterMarkupPercent: 30,
+    middleMileOver190LiterMarkupPercent: 30,
+    middleMileFrom351To1000MarkupPercent: 20,
+    middleMileFrom1001MarkupPercent: 20,
+    lastMileBaseMarkupPercent: 30,
+    lastMileAdditionalKgMarkupPercent: 30
+  };
+}
+
+export const defaultSettings: CalculatorSettings = buildDefaultSettings(tariffData);
 
 export const defaultSkus: SkuInput[] = [
   {
@@ -158,5 +172,5 @@ export const ozonOriginClusters = tariffData.logistics.ozonLogistics.originClust
 export const ozonDeliveryClusters = tariffData.logistics.ozonLogistics.deliveryClusters;
 
 export function ozonClusterForCity(city: string): string {
-  return tariffData.logistics.ozonLogistics.cityToCluster[city] ?? tariffData.logistics.ozonLogistics.originClusters[0] ?? "";
+  return ozonClusterForCityWithTariffs(tariffData, city);
 }

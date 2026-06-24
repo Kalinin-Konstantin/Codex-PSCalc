@@ -9,9 +9,12 @@
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+SUPABASE_SERVICE_ROLE_KEY=sb_service_role_your_key
+WB_API_TOKEN=your_wildberries_api_token
+CRON_SECRET=replace_with_long_random_secret
 ```
 
-Секретный service role key в приложение не добавляем: MVP работает через Supabase Auth, RLS и publishable key.
+`SUPABASE_SERVICE_ROLE_KEY` используется только серверным cron-route `/api/cron/wb-tariffs`, чтобы раз в день сохранять свежий снимок тарифов WB в Supabase. В клиентский код он не попадает.
 
 ## 2. Миграции Supabase
 
@@ -21,6 +24,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 2. `supabase/migrations/202606220002_sellers_calculations.sql`
 3. `supabase/migrations/202606220003_commercial_settings_profiles.sql`
 4. `supabase/migrations/202606220004_harden_calculation_seller_ownership.sql`
+5. `supabase/migrations/202606240001_marketplace_tariff_snapshots.sql`
 
 После применения проверить, что RLS включен для таблиц:
 
@@ -28,6 +32,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 - `sellers`
 - `calculations`
 - `commercial_settings_profiles`
+- `marketplace_tariff_snapshots`
 
 ## 3. Первый администратор
 
@@ -61,6 +66,7 @@ where email = 'admin@example.com';
 11. Подтвержденный пользователь-менеджер видит внутреннюю кнопку коммерческих настроек на главной странице и может открыть панель наценок.
 12. Пользователь без роли `admin` не видит ссылку `Админка`, а прямой заход на `/admin` возвращает его на главную.
 13. Клиентская Excel-выгрузка скачивается и не содержит маржу, себестоимость и проценты наценки PIM.Seller.
+14. Cron-route `/api/cron/wb-tariffs` с заголовком `Authorization: Bearer $CRON_SECRET` возвращает `ok: true` и создает свежую строку в `marketplace_tariff_snapshots`.
 
 ## 5. Перед показом клиенту
 

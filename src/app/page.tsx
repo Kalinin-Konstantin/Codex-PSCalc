@@ -4,8 +4,9 @@ import { canUseCalculator, getCurrentProfile, isApprovedAdmin } from "../lib/aut
 import { applyCommercialSettings, parseCommercialSettings } from "../lib/commercial-settings";
 import { isCalculationSnapshot, type CalculatorWorkspace, type LoadedCalculation, type SavedCalculationRecord, type SellerRecord } from "../lib/saved-calculations";
 import { isSupabaseConfigured } from "../lib/supabase/env";
-import { defaultSettings } from "../lib/tariffs";
-import type { CalculatorSettings } from "../lib/types";
+import { loadRuntimeTariffData } from "../lib/tariff-runtime";
+import { buildDefaultSettings } from "../lib/tariffs";
+import type { CalculatorSettings, TariffData } from "../lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +31,15 @@ export default async function Home({ searchParams }: HomeProps) {
     return <AccessStatusPanel profile={profile} />;
   }
 
+  const tariffs = await loadRuntimeTariffData(supabase);
+
   return (
     <>
       <UserBar profile={profile} />
       <CalculatorApp
         key={`${params.owner ?? profile.id}:${params.calculation ?? params.seller ?? "new"}`}
-        workspace={await loadWorkspace(supabase, profile.id, isApprovedAdmin(profile), params)}
+        tariffs={tariffs}
+        workspace={await loadWorkspace(supabase, profile.id, isApprovedAdmin(profile), params, tariffs)}
       />
     </>
   );
@@ -45,11 +49,12 @@ async function loadWorkspace(
   supabase: Awaited<ReturnType<typeof getCurrentProfile>>["supabase"],
   userId: string,
   isAdmin: boolean,
-  params: { owner?: string; seller?: string; calculation?: string; workspace?: string }
+  params: { owner?: string; seller?: string; calculation?: string; workspace?: string },
+  tariffs: TariffData
 ): Promise<CalculatorWorkspace> {
   const ownerId = isAdmin && params.owner ? params.owner : userId;
   const canEdit = ownerId === userId;
-  const defaultSettingsForNewCalculation = await loadDefaultSettings(supabase);
+  const defaultSettingsForNewCalculation = await loadDefaultSettings(supabase, tariffs);
   let ownerEmail: string | undefined;
 
   if (isAdmin && ownerId !== userId) {
@@ -132,12 +137,17 @@ async function loadWorkspace(
   };
 }
 
-async function loadDefaultSettings(supabase: Awaited<ReturnType<typeof getCurrentProfile>>["supabase"]): Promise<CalculatorSettings> {
+async function loadDefaultSettings(
+  supabase: Awaited<ReturnType<typeof getCurrentProfile>>["supabase"],
+  tariffs: TariffData
+): Promise<CalculatorSettings> {
   const { data } = await supabase
     .from("commercial_settings_profiles")
     .select("settings")
     .eq("is_default", true)
     .maybeSingle();
 
-  return data?.settings ? applyCommercialSettings(defaultSettings, parseCommercialSettings(data.settings)) : defaultSettings;
+  const baseSettings = buildDefaultSettings(tariffs);
+
+  return data?.settings ? applyCommercialSettings(baseSettings, parseCommercialSettings(data.settings)) : baseSettings;
 }

@@ -13,7 +13,7 @@ import {
   labelForWbSupplyType
 } from "../lib/calculator.ts";
 import {
-  defaultSettings,
+  buildDefaultSettings,
   defaultSkus,
   destinationCities,
   originCities,
@@ -25,7 +25,7 @@ import {
   ozonProductTypesByCategory,
   tariffData,
   wbCategories,
-  wbWarehousesForDestination,
+  wbWarehousesForDestinationWithTariffs,
   wbSubjects,
   wbSubjectsByCategory,
 } from "../lib/tariffs";
@@ -33,7 +33,7 @@ import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
 import type { CalculatorWorkspace } from "../lib/saved-calculations";
-import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, WarehouseOperationGroup } from "../lib/types";
+import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, TariffData, WarehouseOperationGroup } from "../lib/types";
 
 type NumericSkuField = "price" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "itemsPerPallet";
 
@@ -48,7 +48,6 @@ const resultColumns = [
 
 const cityCollator = new Intl.Collator("ru");
 const sortedOriginCities = [...originCities].sort(cityCollator.compare);
-const wbTariffInfo = tariffData.logistics.wildberriesLogistics;
 const fastHandoverRules = [
   ["WB", "FBS МГТ/КГТ+", "до 13 часов", "-1,5 п.п. к комиссии"],
   ["WB", "FBS МГТ/КГТ+", "13-18 часов", "базовая комиссия"],
@@ -103,6 +102,7 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
 ];
 
 type CalculatorAppProps = {
+  tariffs?: TariffData;
   workspace?: CalculatorWorkspace;
 };
 
@@ -122,17 +122,23 @@ const workspaceMessages: Record<string, string> = {
   delete_error: "Не удалось удалить запись."
 };
 
-export function CalculatorApp({ workspace }: CalculatorAppProps) {
+export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
+  const activeTariffData = tariffs ?? tariffData;
+  const fallbackDefaultSettings = useMemo(() => buildDefaultSettings(activeTariffData), [activeTariffData]);
+  const wbTariffInfo = activeTariffData.logistics.wildberriesLogistics;
   const [skus, setSkus] = useState<SkuInput[]>(workspace?.loadedCalculation?.snapshot.skus ?? defaultSkus);
   const [settings, setSettings] = useState<CalculatorSettings>(
-    workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? defaultSettings
+    workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? fallbackDefaultSettings
   );
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [skuImportStatus, setSkuImportStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [calculationName, setCalculationName] = useState(
     workspace?.loadedCalculation?.name ?? `Расчёт ${new Date().toLocaleDateString("ru-RU")}`
   );
-  const availableWbWarehouses = useMemo(() => wbWarehousesForDestination(settings.firstMileCity), [settings.firstMileCity]);
+  const availableWbWarehouses = useMemo(
+    () => wbWarehousesForDestinationWithTariffs(activeTariffData, settings.firstMileCity),
+    [activeTariffData, settings.firstMileCity]
+  );
   const selectedWbWarehouse = availableWbWarehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
   const calculationSettings = useMemo<CalculatorSettings>(
     () => ({ ...settings, presentationMode: isAdminOpen ? "internal" : "client" }),
@@ -142,10 +148,10 @@ export function CalculatorApp({ workspace }: CalculatorAppProps) {
   const calculations = useMemo(
     () =>
       skus.map((sku) => {
-        const result = calculateAllSchemes(sku, calculationSettings, tariffData);
+        const result = calculateAllSchemes(sku, calculationSettings, activeTariffData);
         return { sku, result, bestByMarketplace: findBestResultsByMarketplace(result) };
       }),
-    [calculationSettings, skus]
+    [activeTariffData, calculationSettings, skus]
   );
 
   const totals = useMemo(() => {
@@ -192,7 +198,7 @@ export function CalculatorApp({ workspace }: CalculatorAppProps) {
   async function handleSkuImport(file: File | null) {
     if (!file) return;
     try {
-      const result = await importSkusFromXlsxFile(file, tariffData);
+      const result = await importSkusFromXlsxFile(file, activeTariffData);
       if (!result.skus.length) {
         setSkuImportStatus({ kind: "error", message: result.warnings.join(" ") || "Не удалось загрузить SKU из файла." });
         return;
@@ -215,13 +221,13 @@ export function CalculatorApp({ workspace }: CalculatorAppProps) {
 
   function downloadClientReport() {
     triggerXlsxDownload(
-      createClientReportBlob(skus, settings, tariffData),
+      createClientReportBlob(skus, settings, activeTariffData),
       `Расчёт PIM.Seller для клиента ${new Date().toISOString().slice(0, 10)}.xlsx`
     );
   }
 
   function updateDestinationCity(destinationCity: string) {
-    const nextWarehouses = wbWarehousesForDestination(destinationCity);
+    const nextWarehouses = wbWarehousesForDestinationWithTariffs(activeTariffData, destinationCity);
     const nextOzonCluster = ozonClusterForCity(destinationCity);
     setSettings({
       ...settings,
