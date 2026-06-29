@@ -14,6 +14,7 @@ import {
 } from "../src/lib/calculator.ts";
 import { buildClientReportWorksheets, createClientReportXlsx } from "../src/lib/client-report.ts";
 import { applyCommercialSettings, parseCommercialSettings } from "../src/lib/commercial-settings.ts";
+import { buildApprovalEmail } from "../src/lib/email/approval-email.ts";
 import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
 import type { CalculatorSettings, SkuInput, TariffData } from "../src/lib/types.ts";
 
@@ -94,6 +95,22 @@ const settings: CalculatorSettings = {
   lastMileBaseMarkupPercent: 0,
   lastMileAdditionalKgMarkupPercent: 0
 };
+
+test("approval email uses branded HTML and a readable text fallback", () => {
+  const email = buildApprovalEmail({
+    appUrl: "https://calc.pimseller.ru",
+    logoUrl: "https://calc.pimseller.ru/pim-seller-logo.png",
+    recipientEmail: "manager@example.com"
+  });
+
+  assert.equal(email.subject, "Доступ к калькулятору PIM.Seller подтверждён");
+  assert.match(email.html, /pim-seller-logo\.png/);
+  assert.match(email.html, /manager@example\.com/);
+  assert.match(email.html, /https:\/\/calc\.pimseller\.ru/);
+  assert.match(email.html, /#083f38/);
+  assert.match(email.html, /#6b2cff/);
+  assert.match(email.text, /Ваша регистрация в PIM\.Seller подтверждена/);
+});
 
 const skus: SkuInput[] = [
   {

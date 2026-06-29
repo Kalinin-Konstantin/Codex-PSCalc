@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "../../lib/supabase/server";
 import { getCurrentProfile, isApprovedAdmin } from "../../lib/auth/session";
+import { sendApprovalEmail } from "../../lib/email/approval-email";
 import { isSupabaseConfigured } from "../../lib/supabase/env";
 
 function field(formData: FormData, name: string) {
@@ -62,7 +63,13 @@ export async function approveUserAction(formData: FormData) {
   const userId = field(formData, "userId");
   if (!userId) redirect("/admin");
 
-  await supabase
+  const { data: targetProfile } = await supabase
+    .from("profiles")
+    .select("email,status")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const { error } = await supabase
     .from("profiles")
     .update({
       status: "approved",
@@ -70,6 +77,10 @@ export async function approveUserAction(formData: FormData) {
       approved_by: profile.id
     })
     .eq("id", userId);
+
+  if (!error && targetProfile?.email && targetProfile.status !== "approved") {
+    await sendApprovalEmail(String(targetProfile.email));
+  }
 
   redirect("/admin");
 }
