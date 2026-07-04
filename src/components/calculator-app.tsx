@@ -32,7 +32,7 @@ import {
 import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
-import type { CalculatorWorkspace } from "../lib/saved-calculations";
+import { hydrateCalculatorSettings, type CalculatorWorkspace } from "../lib/saved-calculations";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, TariffData, WarehouseOperationGroup } from "../lib/types";
 
 type NumericSkuField = "price" | "weightKg" | "lengthCm" | "widthCm" | "heightCm" | "itemsPerPallet";
@@ -144,9 +144,11 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
   const fallbackDefaultSettings = useMemo(() => buildDefaultSettings(activeTariffData), [activeTariffData]);
   const wbTariffInfo = activeTariffData.logistics.wildberriesLogistics;
   const [skus, setSkus] = useState<SkuInput[]>(() => workspace?.loadedCalculation?.snapshot.skus ?? [createBlankSku()]);
-  const [settings, setSettings] = useState<CalculatorSettings>(
-    workspace?.loadedCalculation?.snapshot.settings ?? workspace?.defaultSettings ?? fallbackDefaultSettings
+  const initialSettings = useMemo(
+    () => hydrateCalculatorSettings(workspace?.defaultSettings ?? fallbackDefaultSettings, workspace?.loadedCalculation?.snapshot.settings),
+    [fallbackDefaultSettings, workspace?.defaultSettings, workspace?.loadedCalculation?.snapshot.settings]
   );
+  const [settings, setSettings] = useState<CalculatorSettings>(initialSettings);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [skuImportStatus, setSkuImportStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [calculationName, setCalculationName] = useState(

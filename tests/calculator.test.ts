@@ -15,6 +15,7 @@ import {
 import { buildClientReportWorksheets, createClientReportXlsx } from "../src/lib/client-report.ts";
 import { applyCommercialSettings, parseCommercialSettings } from "../src/lib/commercial-settings.ts";
 import { buildApprovalEmail } from "../src/lib/email/approval-email.ts";
+import { hydrateCalculatorSettings } from "../src/lib/saved-calculations.ts";
 import { buildSkusFromImportRows } from "../src/lib/sku-import.ts";
 import type { CalculatorSettings, SkuInput, TariffData } from "../src/lib/types.ts";
 
@@ -156,6 +157,27 @@ const skus: SkuInput[] = [
     itemsPerPallet: 16
   }
 ];
+
+test("old saved calculation settings are hydrated with current calculator defaults", () => {
+  const legacySettings = {
+    ...settings,
+    warehouseOperationGroups: undefined,
+    warehouseOperationMarkupPercents: undefined,
+    warehouseOperationRowMarkupPercents: undefined,
+    warehouseReceivingMarkupPercents: undefined,
+    warehouseStorageMarkupPercents: undefined,
+    warehouseFulfillmentExtraOperations: undefined
+  };
+
+  const hydrated = hydrateCalculatorSettings(settings, legacySettings);
+  const result = calculateAllSchemes(skus[0], hydrated, tariffs);
+
+  assert.deepEqual(hydrated.warehouseOperationGroups, settings.warehouseOperationGroups);
+  assert.deepEqual(hydrated.warehouseOperationMarkupPercents, settings.warehouseOperationMarkupPercents);
+  assert.deepEqual(hydrated.warehouseOperationRowMarkupPercents, settings.warehouseOperationRowMarkupPercents);
+  assert.deepEqual(hydrated.warehouseFulfillmentExtraOperations, settings.warehouseFulfillmentExtraOperations);
+  assert.equal(result.wildberries.fbs.isComplete, true);
+});
 
 test("volume and volumetric weight match the Excel case formulas", () => {
   const metrics = calculateSkuMetrics(skus[0]);

@@ -2,7 +2,7 @@ import { CalculatorApp } from "../components/calculator-app";
 import { AccessStatusPanel, AuthPanel, SupabaseSetupPanel, UserBar } from "../components/auth-panel";
 import { canUseCalculator, getCurrentProfile, isApprovedAdmin } from "../lib/auth/session";
 import { applyCommercialSettings, parseCommercialSettings } from "../lib/commercial-settings";
-import { isCalculationSnapshot, type CalculatorWorkspace, type LoadedCalculation, type SavedCalculationRecord, type SellerRecord } from "../lib/saved-calculations";
+import { hydrateCalculatorSettings, isCalculationSnapshot, type CalculatorWorkspace, type LoadedCalculation, type SavedCalculationRecord, type SellerRecord } from "../lib/saved-calculations";
 import { isSupabaseConfigured } from "../lib/supabase/env";
 import { loadRuntimeTariffData } from "../lib/tariff-runtime";
 import { buildDefaultSettings } from "../lib/tariffs";
@@ -118,7 +118,10 @@ async function loadWorkspace(
         sellerId: String(data.seller_id),
         name: String(data.name),
         updatedAt: String(data.updated_at),
-        snapshot: data.snapshot
+        snapshot: {
+          ...data.snapshot,
+          settings: hydrateCalculatorSettings(defaultSettingsForNewCalculation, data.snapshot.settings)
+        }
       };
     }
   }

@@ -518,6 +518,29 @@ select:disabled {
   padding: 24px 0 42px;
 }
 
+.empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  width: min(620px, 100%);
+  margin: 18vh auto 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+}
+
+.empty-state h1,
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .topbar {
   position: relative;
   display: flex;
