@@ -1282,6 +1282,19 @@ test("Wildberries FBO box uses non-food Краснодар tariff row", () => {
   assert.ok(!result.wildberries.fbo.warnings.some((warning) => warning.includes("недоступна")));
 });
 
+test("Wildberries FBO keeps totals when box acceptance is temporarily unavailable", () => {
+  const result = calculateAllSchemes(skus[0], { ...settings, firstMileCity: "Новосибирск", wbWarehouse: "Новосибирск", wbSupplyType: "box" }, tariffs);
+  const acceptance = result.wildberries.fbo.breakdown.find((item) => item.key === "wbAcceptance");
+
+  assert.equal(result.wildberries.fbo.isComplete, true);
+  assert.ok(result.wildberries.fbo.totalRub > 0);
+  assert.equal(acceptance?.amountRub, 0);
+  assert.equal(acceptance?.isWarning, true);
+  assert.match(acceptance?.calculationNote ?? "", /Тип поставки "Короб" в настоящее время на склад "Новосибирск" недоступен/);
+  assert.match(acceptance?.calculationNote ?? "", /используется тариф приёмки 0 ₽/);
+  assert.ok(!result.wildberries.fbo.warnings.some((warning) => warning.includes("Не найден тариф приёмки")));
+});
+
 test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const fboPart = (key: string) => result.ozon.fbo.breakdown.find((item) => item.key === key)?.amountRub;

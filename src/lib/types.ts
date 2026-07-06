@@ -75,6 +75,7 @@ export type CostBreakdownItem = {
   vatMode: CostVatMode;
   vatNote: string;
   isReferenceOnly?: boolean;
+  isWarning?: boolean;
   calculationNote?: string;
   internalNote?: string;
   pimProfitCenter?: PimProfitCenter;

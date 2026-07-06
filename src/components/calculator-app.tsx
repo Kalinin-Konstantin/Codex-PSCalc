@@ -1941,7 +1941,7 @@ function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean 
         <summary>Статьи</summary>
         <ul className="breakdown-list">
           {displayBreakdown.map((item) => (
-            <li key={item.key}>
+            <li className={item.isWarning ? "breakdown-warning" : undefined} key={item.key}>
               <span className="breakdown-label">
                 <span className="breakdown-title">
                   <span className="breakdown-name">{item.label}</span>

@@ -1006,7 +1006,7 @@ function wildberriesMarketplaceCosts(
     const tariff = supplyType === "pallet" ? warehouse?.pallet : warehouse?.box;
     const delivery = wbFboDeliveryCost(metrics.volumeLiters, warehouse, supplyType, wbLogistics, tariff);
     const storage = wbFboStorageCost(metrics.volumeLiters, sku.itemsPerPallet, settings.storageDays, warehouse, supplyType, tariff);
-    const acceptance = wbAcceptanceCost(sku, metrics.volumeLiters, warehouse, supplyType, warnings);
+    const acceptance = wbAcceptanceCost(sku, metrics.volumeLiters, warehouse, supplyType);
     const deliverySource = wbFboDeliveryTariffSource(warehouse, supplyType, tariff);
 
     if (delivery == null) {
@@ -1035,10 +1035,11 @@ function wildberriesMarketplaceCosts(
       {
         key: "wbAcceptance",
         label: "Приёмка WB",
-        amountRub: acceptance ?? 0,
+        amountRub: acceptance.amountRub,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: wbAcceptanceNote(sku, metrics.volumeLiters, warehouse, supplyType, acceptance)
+        isWarning: acceptance.isWarning,
+        calculationNote: wbAcceptanceNote(sku, metrics.volumeLiters, warehouse, supplyType, acceptance.amountRub)
       },
       {
         key: "wbStorage",
@@ -1240,21 +1241,18 @@ function wbAcceptanceCost(
   sku: SkuInput,
   volumeLiters: number,
   warehouse: LogisticsAssumptions["wildberriesLogistics"]["warehouses"][number] | undefined,
-  supplyType: "box" | "pallet",
-  warnings: string[]
-): number | null {
+  supplyType: "box" | "pallet"
+): { amountRub: number; isWarning?: boolean } {
   const acceptance = warehouse?.acceptance?.[supplyType];
   if (!acceptance) {
-    warnings.push(`Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${labelForWbSupplyType(supplyType)}"`);
-    return null;
+    return { amountRub: 0, isWarning: true };
   }
   if (!acceptance.allowUnload) {
-    warnings.push(`Поставка WB на "${warehouse?.name}" типом "${labelForWbSupplyType(supplyType)}" недоступна на дату ${acceptance.date.slice(0, 10)}`);
-    return null;
+    return { amountRub: 0, isWarning: true };
   }
-  if (acceptance.coefficient <= 0) return 0;
-  if (supplyType === "pallet") return safeDivide(500 * acceptance.coefficient, sku.itemsPerPallet);
-  return 1.7 * volumeLiters * acceptance.coefficient;
+  if (acceptance.coefficient <= 0) return { amountRub: 0 };
+  if (supplyType === "pallet") return { amountRub: safeDivide(500 * acceptance.coefficient, sku.itemsPerPallet) ?? 0 };
+  return { amountRub: 1.7 * volumeLiters * acceptance.coefficient };
 }
 
 function wbFboDeliveryNote(
@@ -1295,8 +1293,8 @@ function wbAcceptanceNote(
   amountRub: number | null
 ): string {
   const acceptance = warehouse?.acceptance?.[supplyType];
-  if (!acceptance) return `Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${labelForWbSupplyType(supplyType)}".`;
-  if (!acceptance.allowUnload) return `На дату ${acceptance.date.slice(0, 10)} приёмка WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${labelForWbSupplyType(supplyType)}" недоступна.`;
+  if (!acceptance) return `Тип поставки "${labelForWbSupplyType(supplyType)}" в настоящее время на склад "${warehouse?.name ?? "не выбран"}" недоступен. В расчёте временно используется тариф приёмки 0 ₽.`;
+  if (!acceptance.allowUnload) return `Тип поставки "${labelForWbSupplyType(supplyType)}" в настоящее время на склад "${warehouse?.name ?? "не выбран"}" недоступен. В расчёте временно используется тариф приёмки 0 ₽.`;
   if (acceptance.coefficient <= 0) {
     return `Приёмка WB бесплатна на дату ${acceptance.date.slice(0, 10)} для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${labelForWbSupplyType(supplyType)}". Итого: ${formatDecimal(amountRub ?? 0)} ₽.`;
   }

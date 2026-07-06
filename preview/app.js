@@ -1615,7 +1615,7 @@ function resultCell(result, bestByMarketplace) {
           ${displayBreakdown
             .map(
               (item) =>
-                `<li><span class="breakdown-label"><span class="breakdown-title"><span class="breakdown-name">${escapeHtml(item.label)}</span></span><small>${escapeHtml(item.vatNote)}</small>${item.internalNote ? `<small>${escapeHtml(item.internalNote)}</small>` : ""}</span><span class="breakdown-value">${breakdownHelpHtml(item)}<strong>${formatRub(item.amountRub)}</strong></span></li>`
+                `<li class="${item.isWarning ? "breakdown-warning" : ""}"><span class="breakdown-label"><span class="breakdown-title"><span class="breakdown-name">${escapeHtml(item.label)}</span></span><small>${escapeHtml(item.vatNote)}</small>${item.internalNote ? `<small>${escapeHtml(item.internalNote)}</small>` : ""}</span><span class="breakdown-value">${breakdownHelpHtml(item)}<strong>${formatRub(item.amountRub)}</strong></span></li>`
             )
             .join("")}
         </ul>
@@ -2417,7 +2417,7 @@ function wildberriesCosts(scheme, sku, warnings) {
     const tariff = settings.wbSupplyType === "pallet" ? warehouse?.pallet : warehouse?.box;
     const delivery = wbFboDeliveryCost(metrics.volumeLiters, warehouse, settings.wbSupplyType, logistics, tariff);
     const storage = wbFboStorageCost(metrics.volumeLiters, sku.itemsPerPallet, settings.storageDays, warehouse, settings.wbSupplyType, tariff);
-    const acceptance = wbAcceptanceCost(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType, warnings);
+    const acceptance = wbAcceptanceCost(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType);
     const deliverySource = wbFboDeliveryTariffSource(warehouse, settings.wbSupplyType, tariff);
     if (delivery == null) warnings.push(`Не найден тариф логистики WB для склада "${settings.wbWarehouse}" и типа поставки "${wbSupplyLabel(settings.wbSupplyType)}"`);
     if (storage == null) warnings.push(`Не найден тариф хранения WB для склада "${settings.wbWarehouse}" и типа поставки "${wbSupplyLabel(settings.wbSupplyType)}"`);
@@ -2433,10 +2433,11 @@ function wildberriesCosts(scheme, sku, warnings) {
       {
         key: "wbAcceptance",
         label: "Приёмка WB",
-        amountRub: acceptance ?? 0,
+        amountRub: acceptance.amountRub,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: wbAcceptanceNote(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType, acceptance)
+        isWarning: acceptance.isWarning,
+        calculationNote: wbAcceptanceNote(sku, metrics.volumeLiters, warehouse, settings.wbSupplyType, acceptance.amountRub)
       },
       {
         key: "wbStorage",
@@ -2555,19 +2556,17 @@ function wbFboStorageCost(volumeLiters, itemsPerPallet, storageDays, warehouse, 
   return wbStorageCost(volumeLiters, itemsPerPallet, storageDays, fallbackTariff, supplyType);
 }
 
-function wbAcceptanceCost(sku, volumeLiters, warehouse, supplyType, warnings) {
+function wbAcceptanceCost(sku, volumeLiters, warehouse, supplyType) {
   const acceptance = warehouse?.acceptance?.[supplyType];
   if (!acceptance) {
-    warnings.push(`Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}"`);
-    return null;
+    return { amountRub: 0, isWarning: true };
   }
   if (!acceptance.allowUnload) {
-    warnings.push(`Поставка WB на "${warehouse?.name}" типом "${wbSupplyLabel(supplyType)}" недоступна на дату ${acceptance.date.slice(0, 10)}`);
-    return null;
+    return { amountRub: 0, isWarning: true };
   }
-  if (acceptance.coefficient <= 0) return 0;
-  if (supplyType === "pallet") return safeDivide(500 * acceptance.coefficient, sku.itemsPerPallet);
-  return 1.7 * volumeLiters * acceptance.coefficient;
+  if (acceptance.coefficient <= 0) return { amountRub: 0 };
+  if (supplyType === "pallet") return { amountRub: safeDivide(500 * acceptance.coefficient, sku.itemsPerPallet) ?? 0 };
+  return { amountRub: 1.7 * volumeLiters * acceptance.coefficient };
 }
 
 function wbFboDeliveryNote(volumeLiters, priceRub, localizationIndex, salesDistributionIndex, deliveryRub, source) {
@@ -2591,8 +2590,8 @@ function wbFbsDeliveryNote(volumeLiters, warehouse, deliveryRub) {
 
 function wbAcceptanceNote(sku, volumeLiters, warehouse, supplyType, amountRub) {
   const acceptance = warehouse?.acceptance?.[supplyType];
-  if (!acceptance) return `Не найден тариф приёмки WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}".`;
-  if (!acceptance.allowUnload) return `На дату ${acceptance.date.slice(0, 10)} приёмка WB для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}" недоступна.`;
+  if (!acceptance) return `Тип поставки "${wbSupplyLabel(supplyType)}" в настоящее время на склад "${warehouse?.name ?? "не выбран"}" недоступен. В расчёте временно используется тариф приёмки 0 ₽.`;
+  if (!acceptance.allowUnload) return `Тип поставки "${wbSupplyLabel(supplyType)}" в настоящее время на склад "${warehouse?.name ?? "не выбран"}" недоступен. В расчёте временно используется тариф приёмки 0 ₽.`;
   if (acceptance.coefficient <= 0) {
     return `Приёмка WB бесплатна на дату ${acceptance.date.slice(0, 10)} для склада "${warehouse?.name ?? "не выбран"}" и типа поставки "${wbSupplyLabel(supplyType)}". Итого: ${formatNumber(amountRub ?? 0)} ₽.`;
   }

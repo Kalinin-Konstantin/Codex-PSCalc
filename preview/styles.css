@@ -1593,6 +1593,14 @@ summary:hover {
   z-index: 1;
 }
 
+.breakdown-list li.breakdown-warning {
+  margin: 0 -6px;
+  border-radius: 7px;
+  background: var(--warn-soft);
+  box-shadow: inset 3px 0 0 var(--warn);
+  padding: 6px;
+}
+
 .breakdown-list li:has(.breakdown-help:hover),
 .breakdown-list li:has(.breakdown-help:focus-within) {
   z-index: 1200;
