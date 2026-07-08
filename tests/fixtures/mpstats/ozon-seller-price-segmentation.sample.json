@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "label": "до 3500", "maxPrice": 3500, "sales": 6, "revenueRub": 18000, "products": 3 },
+    { "label": "3500-7000", "minPrice": 3500, "maxPrice": 7000, "sales": 14, "revenueRub": 82000, "products": 4 }
+  ]
+}

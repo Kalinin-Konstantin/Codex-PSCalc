@@ -1,0 +1,148 @@
+{
+  "id": 900000001,
+  "product_id": 900000001,
+  "name": "Sample Product",
+  "full_name": "Sample Product",
+  "link": "https://example.test/sample",
+  "subject": {
+    "id": 900000002,
+    "name": "Sample Product",
+    "group": null,
+    "basic_logistics": 0,
+    "storage_price": 0,
+    "acceptance_price": 0,
+    "delivery_by_volume": 0,
+    "commission": {
+      "fbo": 20,
+      "fbs": 20
+    },
+    "purchase": {
+      "is_purchase": 1,
+      "purchase": 90,
+      "purchase_after_return": 90
+    }
+  },
+  "brand": "Sample Brand",
+  "seller": {
+    "id": 900000003,
+    "name": "Sample Product"
+  },
+  "color": {
+    "color": "белый",
+    "colors": {
+      "revenue": null,
+      "balance": null
+    },
+    "all_colors": [
+      {
+        "color": "белый",
+        "id": 900000004,
+        "photo": "https://example.test/sample"
+      }
+    ]
+  },
+  "photo": {
+    "count": 20,
+    "is_changed": true,
+    "list": [
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      },
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample"
+      }
+    ]
+  },
+  "rating": 5,
+  "rating_mpstats": 40,
+  "stock": {
+    "fbo": 0,
+    "fbs": 50
+  },
+  "orders": 0,
+  "comments": 6,
+  "price": {
+    "price": 25000,
+    "final_price": 19000,
+    "wallet_price": 19000
+  },
+  "balance": 50,
+  "discount": 30,
+  "is_new": 0,
+  "first_date": "2026-04-08",
+  "country": "Россия",
+  "gender": "",
+  "sizes": [],
+  "score": {
+    "date": "2026-04-26",
+    "score": 40,
+    "scores": [
+      40,
+      40
+    ]
+  },
+  "note": null,
+  "access_edit_sales_data": false,
+  "period_stats": {
+    "id": 900000005,
+    "subject_id": 900000001,
+    "rating": 5,
+    "cardratingval": 40,
+    "top_hours": [],
+    "top_sells": 0,
+    "revenue": 0,
+    "revenue_avg": 0,
+    "revenue_avg_with_stock": null,
+    "revenue_estimated": 0,
+    "sales": 0,
+    "sales_avg": 0,
+    "sales_top_percent": 0,
+    "sales_avg_with_stock": null,
+    "sales_estimated": 0,
+    "days_in_stock": 0,
+    "revenue_potential": 0,
+    "lost_profit": 0,
+    "lost_profit_percent": null,
+    "purchase": 90,
+    "purchase_after_return": 90,
+    "revenue_prev": 36000,
+    "sales_prev": 2,
+    "sales_heatmap": []
+  },
+  "updated": "2026-07-02 21:31:09",
+  "adv_stats": {
+    "influence": "unknown",
+    "post_count": 1,
+    "platforms": [
+      "wibes"
+    ],
+    "has_direct": 0,
+    "has_external_seo": 1
+  }
+}

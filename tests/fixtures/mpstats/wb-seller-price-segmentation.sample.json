@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "range": "5000-10000", "from": 5000, "to": 10000, "orders": 10, "revenue": 70000, "items": 4 },
+    { "range": "0-5000", "from": 0, "to": 5000, "orders": 20, "revenue": 80000, "items": 8 }
+  ]
+}

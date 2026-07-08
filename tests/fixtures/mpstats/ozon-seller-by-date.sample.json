@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "date": "2026-06-01", "orders": 5, "turnover": 25000, "skuCount": 7, "skuWithSales": 4 },
+    { "date": "2026-06-02", "orders": 15, "turnover": 75000, "skuCount": 7, "skuWithSales": 5 }
+  ]
+}

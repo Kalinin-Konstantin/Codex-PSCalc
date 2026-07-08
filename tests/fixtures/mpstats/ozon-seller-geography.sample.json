@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "regionName": "Москва", "salesCount": 11, "revenue": 61000, "balance": 15 },
+    { "regionName": "Санкт-Петербург", "salesCount": 9, "revenue": 39000, "balance": 12 }
+  ]
+}

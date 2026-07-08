@@ -1,0 +1,159 @@
+{
+  "period": "2026-06",
+  "region_data": [
+    {
+      "region": "Санкт-Петербург и СЗО",
+      "sales": 80,
+      "count": 170,
+      "revenue": 790000,
+      "sales_percent": 20,
+      "count_percent": 70,
+      "revenue_percent": 20
+    },
+    {
+      "region": "Москва, МО и Дальние регионы",
+      "sales": 280,
+      "count": 80,
+      "revenue": 3700000,
+      "sales_percent": 80,
+      "count_percent": 30,
+      "revenue_percent": 80
+    },
+    {
+      "region": "Воронеж",
+      "sales": 1,
+      "count": 3,
+      "revenue": 6840,
+      "sales_percent": 0.27,
+      "count_percent": 1.17,
+      "revenue_percent": 0.15
+    },
+    {
+      "region": "Саратов",
+      "sales": 0,
+      "count": 1,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0.39,
+      "revenue_percent": 0
+    },
+    {
+      "region": "Екатеринбург",
+      "sales": 0,
+      "count": 1,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0.39,
+      "revenue_percent": 0
+    },
+    {
+      "region": "Калининград",
+      "sales": 0,
+      "count": 1,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0.39,
+      "revenue_percent": 0
+    },
+    {
+      "region": "Казань",
+      "sales": 2,
+      "count": 0,
+      "revenue": 15000,
+      "sales_percent": 0.54,
+      "count_percent": 0,
+      "revenue_percent": 0.32
+    },
+    {
+      "region": "Пермь",
+      "sales": 0,
+      "count": 0,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0,
+      "revenue_percent": 0
+    }
+  ],
+  "storage_data": [
+    {
+      "name": "Sample Product",
+      "region": "Санкт-Петербург и СЗО",
+      "sales": 60,
+      "count": 170,
+      "revenue": 397000,
+      "sales_percent": 20,
+      "count_percent": 70,
+      "revenue_percent": 8.57
+    },
+    {
+      "name": "Sample Product",
+      "region": "Москва, МО и Дальние регионы",
+      "sales": 60,
+      "count": 40,
+      "revenue": 2000000,
+      "sales_percent": 20,
+      "count_percent": 20,
+      "revenue_percent": 40
+    },
+    {
+      "name": "Sample Product",
+      "region": "Москва, МО и Дальние регионы",
+      "sales": 120,
+      "count": 40,
+      "revenue": 764000,
+      "sales_percent": 30,
+      "count_percent": 10,
+      "revenue_percent": 20
+    },
+    {
+      "name": "Sample Product",
+      "region": "Москва, МО и Дальние регионы",
+      "sales": 70,
+      "count": 7,
+      "revenue": 622000,
+      "sales_percent": 20,
+      "count_percent": 2.73,
+      "revenue_percent": 10
+    },
+    {
+      "name": "Sample Product",
+      "region": "Воронеж",
+      "sales": 0,
+      "count": 3,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 1.17,
+      "revenue_percent": 0
+    },
+    {
+      "name": "Sample Product",
+      "region": "Саратов",
+      "sales": 0,
+      "count": 1,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0.39,
+      "revenue_percent": 0
+    },
+    {
+      "name": "Sample Product",
+      "region": "Екатеринбург",
+      "sales": 0,
+      "count": 1,
+      "revenue": 0,
+      "sales_percent": 0,
+      "count_percent": 0.39,
+      "revenue_percent": 0
+    },
+    {
+      "name": "Sample Product",
+      "region": "Санкт-Петербург и СЗО",
+      "sales": 1,
+      "count": 1,
+      "revenue": 6630,
+      "sales_percent": 0.27,
+      "count_percent": 0.39,
+      "revenue_percent": 0.14
+    }
+  ]
+}

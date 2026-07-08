@@ -280,6 +280,35 @@ test("Wildberries tariff snapshots are stored server-side with protected cron re
   assert.match(vercel, /"schedule": "0 5 \* \* \*"/);
 });
 
+test("MPStats proxy keeps API token server-side only", () => {
+  const route = readFileSync(new URL("../src/app/api/mpstats/route.ts", import.meta.url), "utf-8");
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf-8");
+
+  assert.match(route, /process\.env\.MPSTATS_TOKEN/);
+  assert.match(route, /X-Mpstats-TOKEN/);
+  assert.match(route, /canUseCalculator/);
+  assert.match(route, /Invalid marketplace/);
+  assert.match(route, /MPStats API request failed/);
+  assert.doesNotMatch(route, /NEXT_PUBLIC_MPSTATS_TOKEN/);
+  assert.doesNotMatch(route, /VITE_MPSTATS_TOKEN/);
+  assert.match(readme, /MPSTATS_TOKEN/);
+  assert.match(readme, /NEXT_PUBLIC_MPSTATS_TOKEN/);
+  assert.match(readme, /VITE_MPSTATS_TOKEN/);
+});
+
+test("MPStats seller integration plan keeps MVP isolated and server-side", () => {
+  const doc = readFileSync(new URL("../docs/mpstats-seller-integration.md", import.meta.url), "utf-8");
+
+  assert.match(doc, /separate MPStats section/);
+  assert.match(doc, /Калькулятор \| MPStats проверка селлера/);
+  assert.match(doc, /`MPSTATS_TOKEN` only in server environment/);
+  assert.match(doc, /Never call `https:\/\/mpstats\.io` from browser code/);
+  assert.match(doc, /No cron, scheduled auto-refresh, or user-facing `Обновить данные` button/);
+  assert.match(doc, /Ozon geography is intentionally displayed as sales geography/);
+  assert.match(doc, /POST seller\/price_segmentation/);
+  assert.match(doc, /POST seller\/niches/);
+});
+
 test("commission lookups use marketplace source files", () => {
   const wb = findWbCommission(skus[0], tariffs.wildberriesCommissions);
   assert.ok(wb);

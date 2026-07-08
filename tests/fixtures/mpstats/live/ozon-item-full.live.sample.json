@@ -1,0 +1,59 @@
+{
+  "id": 800000001,
+  "name": "Sample Product",
+  "link": "https://example.test/sample",
+  "niche": {
+    "id": 800000002,
+    "name": "Sample Product"
+  },
+  "brand": "Sample Brand",
+  "seller": {
+    "id": 800000003,
+    "name": "Sample Product",
+    "is_best_seller": 0
+  },
+  "price": {
+    "price": 37000,
+    "final_price": 23000,
+    "ozon_card_price": 20000
+  },
+  "discount": 40,
+  "balance": 1,
+  "delivery_scheme": "FBO",
+  "rating": 0,
+  "comments": 0,
+  "period_stats": {
+    "revenue": 0,
+    "revenue_avg": 0,
+    "sales": 0,
+    "sales_avg": 0,
+    "revenue_avg_with_stock": 0,
+    "sales_avg_with_stock": 0,
+    "revenue_potential": 0,
+    "lost_profit": 0,
+    "lost_profit_percent": null,
+    "revenue_prev": 0,
+    "sales_prev": 0,
+    "sku_first_date": "1970-01-01"
+  },
+  "photo": {
+    "count": 6,
+    "list": [
+      {
+        "f": "https://example.test/sample",
+        "t": "https://example.test/sample",
+        "m": "https://example.test/sample"
+      }
+    ]
+  },
+  "sku_first_date": "2026-06-10",
+  "note": null,
+  "updated": "2026-07-03 13:19:01",
+  "adv_stats": {
+    "influence": "unknown",
+    "post_count": 0,
+    "platforms": [],
+    "has_direct": false,
+    "has_external_seo": false
+  }
+}

@@ -20,6 +20,90 @@ npm run dev
 
 Если нужен режим с авторизацией, сохранением расчетов и админкой, создайте `.env.local` по `.env.example` и примените миграции Supabase из `supabase/migrations/`. Порядок демо-деплоя зафиксирован в `docs/demo-deploy-checklist.md`.
 
+## Локальная разработка
+
+Обычный запуск:
+
+```bash
+npm run dev
+```
+
+Используйте его, когда dev server ещё не запущен и `.next` не пересоздавался командой `npm run build`.
+
+Чистый перезапуск:
+
+```bash
+npm run dev:clean
+```
+
+Используйте `dev:clean`, если:
+
+- перед этим запускался `npm run build`;
+- страница открылась без CSS или React не гидратируется;
+- кнопки не нажимаются;
+- Next.js ушёл на порт `3001`, а вы ожидали `3000`.
+
+`dev:clean` завершает старые процессы `next dev`, освобождает порт `3000`, удаляет `.next` и запускает свежий dev server на `http://localhost:3000`.
+
+Не запускайте `npm run build` при уже работающем `npm run dev`.
+
+Команда `build` пересоздает содержимое `.next`, из-за чего старый dev server может начать отдавать HTML со ссылками на несуществующие JS/CSS chunks.
+
+Если после build вы продолжаете разработку:
+
+1. остановите dev server и запустите `npm run dev` заново;
+2. или просто выполните `npm run dev:clean`.
+
+Иначе возможны симптомы:
+
+- страница без стилей;
+- React не работает;
+- кнопки не нажимаются;
+- виден только "голый" HTML.
+
+Всегда открывайте URL, который Next.js показывает в терминале в строке `Local:`. Обычно это `http://localhost:3000`. Если терминал показывает `http://localhost:3001`, значит порт `3000` занят; в этом случае остановите сервер и запустите `npm run dev:clean`.
+
+## Настройка окружения
+
+Создайте локальный файл окружения из шаблона:
+
+```bash
+cp .env.example .env.local
+```
+
+Заполните только нужные значения. В `.env.example` должны оставаться только пустые placeholder'ы, без реальных токенов, URL и ключей.
+
+Обязательные переменные для основного приложения с авторизацией:
+
+- `NEXT_PUBLIC_SUPABASE_URL` — URL проекта Supabase.
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — публичный publishable key Supabase для браузера.
+
+Обязательные переменные для MPStats-раздела:
+
+- `MPSTATS_TOKEN` — server-only токен MPStats для `/api/mpstats/*`.
+
+Обязательные переменные для production-обновления тарифов WB:
+
+- `SUPABASE_SERVICE_ROLE_KEY` — server-only ключ Supabase service role для записи tariff snapshots.
+- `CRON_SECRET` — секрет для защиты `/api/cron/wb-tariffs`.
+- `WB_API_TOKEN` — server-only токен Wildberries API.
+
+Переменные для писем о подтверждении доступа:
+
+- `RESEND_API_KEY` — server-only API key Resend.
+- `APPROVAL_EMAIL_FROM` — отправитель писем.
+- `NEXT_PUBLIC_APP_URL` или `APP_BASE_URL` — базовый URL приложения для ссылок в письмах.
+
+Опциональные переменные:
+
+- `MPSTATS_BASE_URL` — override базового URL MPStats API; обычно не нужен.
+- `WILDBERRIES_API_TOKEN` — legacy alias для `WB_API_TOKEN`; для новых окружений используйте `WB_API_TOKEN`.
+- `WB_TARIFF_DATE` — дата импорта WB-тарифов для локального скрипта, формат `YYYY-MM-DD`.
+- `WB_TARIFFS_CACHE_DIR` — директория с локальным cache JSON для импорта WB-тарифов.
+- `HOST` и `PORT` — настройки локального static preview server.
+
+Важно: не добавляйте секретный MPStats token в переменные с публичным префиксом. `NEXT_PUBLIC_MPSTATS_TOKEN` и `VITE_MPSTATS_TOKEN` не используются и не должны появляться в окружениях, иначе токен может попасть во frontend bundle.
+
 В текущем окружении `npm` может отсутствовать в PATH. Расчётные тесты можно запустить напрямую через Node:
 
 ```bash

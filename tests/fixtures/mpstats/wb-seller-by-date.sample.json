@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "date": "2026-06-01", "revenue": 100000, "sales": 20, "items": 12, "items_with_sales": 8 },
+    { "date": "2026-06-02", "revenue": 50000, "sales": 10, "items": 12, "items_with_sales": 9 }
+  ]
+}
