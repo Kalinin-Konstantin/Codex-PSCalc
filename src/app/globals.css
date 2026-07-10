@@ -2860,6 +2860,45 @@ button.mpstats-tab.active {
   padding: 14px;
 }
 
+.mpstats-ozon-geo {
+  display: grid;
+  gap: 0;
+}
+
+.mpstats-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+  padding: 10px 14px;
+}
+
+button.mpstats-subtab {
+  min-height: 34px;
+  border-color: var(--line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+button.mpstats-subtab:hover,
+button.mpstats-subtab.active {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+  box-shadow: none;
+}
+
+.mpstats-table-note {
+  margin: 14px 14px 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .mpstats-table {
   width: 100%;
   min-width: 760px;
