@@ -5,6 +5,7 @@ import { applyCommercialSettings, parseCommercialSettings } from "../lib/commerc
 import { hydrateCalculatorSettings, isCalculationSnapshot, type CalculatorWorkspace, type LoadedCalculation, type SavedCalculationRecord, type SellerRecord } from "../lib/saved-calculations";
 import { isSupabaseConfigured } from "../lib/supabase/env";
 import { loadRuntimeTariffData } from "../lib/tariff-runtime";
+import { buildCalculatorLookupData } from "../lib/calculator-lookups";
 import { buildDefaultSettings } from "../lib/tariffs";
 import type { CalculatorSettings, TariffData } from "../lib/types";
 
@@ -39,6 +40,7 @@ export default async function Home({ searchParams }: HomeProps) {
       <CalculatorApp
         key={`${params.owner ?? profile.id}:${params.calculation ?? params.seller ?? "new"}`}
         tariffs={tariffs}
+        lookups={buildCalculatorLookupData(tariffs)}
         workspace={await loadWorkspace(supabase, profile.id, isApprovedAdmin(profile), params, tariffs)}
       />
     </>

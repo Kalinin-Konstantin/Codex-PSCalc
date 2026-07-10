@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   breakdownItemsForDisplay,
@@ -12,23 +12,8 @@ import {
   labelForScheme,
   labelForWbSupplyType
 } from "../lib/calculator.ts";
-import {
-  buildDefaultSettings,
-  defaultSkus,
-  destinationCities,
-  originCities,
-  ozonCategories,
-  ozonDeliveryClusters,
-  ozonOriginClusters,
-  ozonClusterForCity,
-  ozonProductTypes,
-  ozonProductTypesByCategory,
-  tariffData,
-  wbCategories,
-  wbWarehousesForDestinationWithTariffs,
-  wbSubjects,
-  wbSubjectsByCategory,
-} from "../lib/tariffs";
+import { buildClientDefaultSettings, ozonClusterForCityWithLookups, type CalculatorLookupData } from "../lib/calculator-lookups";
+import { defaultSkus } from "../lib/default-skus";
 import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
@@ -47,7 +32,6 @@ const resultColumns = [
 ] as const;
 
 const cityCollator = new Intl.Collator("ru");
-const sortedOriginCities = [...originCities].sort(cityCollator.compare);
 const fastHandoverRules = [
   ["WB", "FBS МГТ/КГТ+", "до 13 часов", "-1,5 п.п. к комиссии"],
   ["WB", "FBS МГТ/КГТ+", "13-18 часов", "базовая комиссия"],
@@ -119,7 +103,8 @@ function createBlankSku(): SkuInput {
 }
 
 type CalculatorAppProps = {
-  tariffs?: TariffData;
+  tariffs: TariffData;
+  lookups: CalculatorLookupData;
   workspace?: CalculatorWorkspace;
 };
 
@@ -139,38 +124,46 @@ const workspaceMessages: Record<string, string> = {
   delete_error: "Не удалось удалить запись."
 };
 
-export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
-  const activeTariffData = tariffs ?? tariffData;
-  const fallbackDefaultSettings = useMemo(() => buildDefaultSettings(activeTariffData), [activeTariffData]);
-  const wbTariffInfo = activeTariffData.logistics.wildberriesLogistics;
+export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProps) {
+  const fallbackDefaultSettings = useMemo(() => buildClientDefaultSettings(lookups), [lookups]);
+  const sortedOriginCities = useMemo(() => [...lookups.originCities].sort(cityCollator.compare), [lookups.originCities]);
+  const wbCategoryDatalistValues = useMemo(() => lookupDatalistValues(lookups.wbCategories), [lookups.wbCategories]);
+  const ozonCategoryDatalistValues = useMemo(() => lookupDatalistValues(lookups.ozonCategories), [lookups.ozonCategories]);
+  const wbTariffInfo = tariffs.logistics.wildberriesLogistics;
   const [skus, setSkus] = useState<SkuInput[]>(() => workspace?.loadedCalculation?.snapshot.skus ?? [createBlankSku()]);
   const initialSettings = useMemo(
     () => hydrateCalculatorSettings(workspace?.defaultSettings ?? fallbackDefaultSettings, workspace?.loadedCalculation?.snapshot.settings),
     [fallbackDefaultSettings, workspace?.defaultSettings, workspace?.loadedCalculation?.snapshot.settings]
   );
   const [settings, setSettings] = useState<CalculatorSettings>(initialSettings);
+  const updateSettings = useCallback((patch: Partial<CalculatorSettings>) => {
+    setSettings((current) => ({ ...current, ...patch }));
+  }, []);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [skuImportStatus, setSkuImportStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [calculationName, setCalculationName] = useState(
     workspace?.loadedCalculation?.name ?? `Расчёт ${new Date().toLocaleDateString("ru-RU")}`
   );
   const availableWbWarehouses = useMemo(
-    () => wbWarehousesForDestinationWithTariffs(activeTariffData, settings.firstMileCity),
-    [activeTariffData, settings.firstMileCity]
+    () => lookups.wbWarehousesByDestination[settings.firstMileCity] ?? [],
+    [lookups.wbWarehousesByDestination, settings.firstMileCity]
   );
   const selectedWbWarehouse = availableWbWarehouses.includes(settings.wbWarehouse) ? settings.wbWarehouse : "";
   const calculationSettings = useMemo<CalculatorSettings>(
     () => ({ ...settings, presentationMode: isAdminOpen ? "internal" : "client" }),
     [isAdminOpen, settings]
   );
+  const deferredSkus = useDeferredValue(skus);
+  const deferredCalculationSettings = useDeferredValue(calculationSettings);
 
   const calculations = useMemo(
-    () =>
-      skus.map((sku) => {
-        const result = calculateAllSchemes(sku, calculationSettings, activeTariffData);
+    () => {
+      return deferredSkus.map((sku) => {
+        const result = calculateAllSchemes(sku, deferredCalculationSettings, tariffs);
         return { sku, result, bestByMarketplace: findBestResultsByMarketplace(result) };
-      }),
-    [activeTariffData, calculationSettings, skus]
+      });
+    },
+    [deferredCalculationSettings, deferredSkus, tariffs]
   );
 
   const totals = useMemo(() => {
@@ -190,34 +183,33 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
     [settings, skus]
   );
 
-  function updateSku(id: string, patch: Partial<SkuInput>) {
+  const updateSku = useCallback((id: string, patch: Partial<SkuInput>) => {
     setSkus((current) => current.map((sku) => (sku.id === id ? { ...sku, ...patch } : sku)));
-  }
+  }, []);
 
-  function updateSkuNumber(id: string, field: NumericSkuField, value: string) {
+  const updateSkuNumber = useCallback((id: string, field: NumericSkuField, value: string) => {
     updateSku(id, { [field]: Number(value) || 0 } as Partial<SkuInput>);
-  }
+  }, [updateSku]);
 
-  function addSku() {
-    const next = skus[skus.length - 1] ?? defaultSkus[0];
+  const addSku = useCallback(() => {
     setSkus((current) => [
       ...current,
       {
-        ...next,
+        ...(current[current.length - 1] ?? defaultSkus[0]),
         id: crypto.randomUUID(),
         name: `SKU ${current.length + 1}`
       }
     ]);
-  }
+  }, []);
 
-  function removeSku(id: string) {
+  const removeSku = useCallback((id: string) => {
     setSkus((current) => (current.length > 1 ? current.filter((sku) => sku.id !== id) : current));
-  }
+  }, []);
 
   async function handleSkuImport(file: File | null) {
     if (!file) return;
     try {
-      const result = await importSkusFromXlsxFile(file, activeTariffData);
+      const result = await importSkusFromXlsxFile(file, tariffs);
       if (!result.skus.length) {
         setSkuImportStatus({ kind: "error", message: result.warnings.join(" ") || "Не удалось загрузить SKU из файла." });
         return;
@@ -240,22 +232,22 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
 
   function downloadClientReport() {
     triggerXlsxDownload(
-      createClientReportBlob(skus, settings, activeTariffData),
+      createClientReportBlob(skus, settings, tariffs),
       `Расчёт PIM.Seller для клиента ${new Date().toISOString().slice(0, 10)}.xlsx`
     );
   }
 
-  function updateDestinationCity(destinationCity: string) {
-    const nextWarehouses = wbWarehousesForDestinationWithTariffs(activeTariffData, destinationCity);
-    const nextOzonCluster = ozonClusterForCity(destinationCity);
-    setSettings({
-      ...settings,
+  const updateDestinationCity = useCallback((destinationCity: string) => {
+    const nextWarehouses = lookups.wbWarehousesByDestination[destinationCity] ?? [];
+    const nextOzonCluster = ozonClusterForCityWithLookups(lookups, destinationCity);
+    setSettings((current) => ({
+      ...current,
       firstMileCity: destinationCity,
       wbWarehouse: nextWarehouses[0] ?? "",
       ozonOriginCluster: nextOzonCluster,
       ozonDeliveryCluster: nextOzonCluster
-    });
-  }
+    }));
+  }, [lookups]);
 
   return (
     <main className="shell">
@@ -263,11 +255,16 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
         <div className="brand-lockup">
           <img className="brand-logo" src="/pim-seller-logo.png" alt="PIM.Seller" />
           <div>
-            <p className="eyebrow">Прототип калькулятора</p>
-            <h1>Калькулятор юнит-экономики</h1>
+            <p className="eyebrow">Sales-инструмент PIM.Seller</p>
+            <h1>Калькулятор затрат FBO/FBS/DBS</h1>
           </div>
         </div>
-        <button className="admin-trigger" type="button" aria-label="Открыть админ-панель" onClick={() => setIsAdminOpen(true)}>
+        <button
+          className="admin-trigger"
+          type="button"
+          aria-label="Открыть админ-панель"
+          onClick={() => setIsAdminOpen(true)}
+        >
           •
         </button>
         <div className="status-strip" aria-label="Сводка">
@@ -305,7 +302,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
             <label>
               <span>Куда</span>
               <select value={settings.firstMileCity} onChange={(event) => updateDestinationCity(event.target.value)}>
-                {destinationCities.map((city) => (
+                {lookups.destinationCities.map((city) => (
                   <option key={city} value={city}>
                     {city}
                   </option>
@@ -381,7 +378,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
                 value={settings.ozonOriginCluster}
                 onChange={(event) => setSettings({ ...settings, ozonOriginCluster: event.target.value })}
               >
-                {ozonOriginClusters.map((cluster) => (
+                {lookups.ozonOriginClusters.map((cluster) => (
                   <option key={cluster} value={cluster}>
                     {cluster}
                   </option>
@@ -394,7 +391,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
                 value={settings.ozonDeliveryCluster}
                 onChange={(event) => setSettings({ ...settings, ozonDeliveryCluster: event.target.value })}
               >
-                {ozonDeliveryClusters.map((cluster) => (
+                {lookups.ozonDeliveryClusters.map((cluster) => (
                   <option key={cluster} value={cluster}>
                     {cluster}
                   </option>
@@ -504,8 +501,9 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
         <AdminPanel
           calculations={calculations}
           onClose={() => setIsAdminOpen(false)}
-          onSettingsChange={(patch) => setSettings({ ...settings, ...patch })}
+          onSettingsChange={updateSettings}
           settings={settings}
+          tariffs={tariffs}
         />
       ) : null}
 
@@ -532,7 +530,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
               </button>
               <button className="link-button subtle tool-button" type="button" onClick={downloadClientReport}>
                 <span className="action-symbol" aria-hidden="true">↓</span>
-                <span>Расчёт</span>
+                <span>Скачать расчёт</span>
               </button>
             </div>
             <button className="primary-action" type="button" onClick={addSku}>
@@ -576,113 +574,25 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
             </thead>
             <tbody>
               {skus.map((sku) => (
-                <tr key={sku.id}>
-                  <td>
-                    <input title={sku.name} value={sku.name} onChange={(event) => updateSku(sku.id, { name: event.target.value })} />
-                  </td>
-                  <td>
-                    <NumberInput value={sku.price} onChange={(value) => updateSkuNumber(sku.id, "price", value)} />
-                  </td>
-                  <td>
-                    <input
-                      list="wb-categories"
-                      title={sku.wbCategory}
-                      value={sku.wbCategory}
-                      onChange={(event) => {
-                        const wbCategory = canonicalLookupValue(event.target.value, wbCategories);
-                        const categorySubjects = subjectsForWbCategory(wbCategory);
-                        updateSku(sku.id, {
-                          wbCategory,
-                          wbSubject: hasLookupValue(categorySubjects, sku.wbSubject) ? canonicalLookupValue(sku.wbSubject, categorySubjects) : ""
-                        });
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      list={`wb-subjects-${sku.id}`}
-                      title={sku.wbSubject}
-                      value={sku.wbSubject}
-                      onChange={(event) => {
-                        const wbSubject = canonicalLookupValue(event.target.value, subjectsForWbCategory(sku.wbCategory));
-                        updateSku(sku.id, {
-                          wbSubject,
-                          wbCategory: categoryForWbSubject(wbSubject, sku.wbCategory) ?? sku.wbCategory
-                        });
-                      }}
-                    />
-                    <datalist id={`wb-subjects-${sku.id}`}>
-                      {lookupDatalistValues(subjectsForWbCategory(sku.wbCategory)).map((subject) => (
-                        <option key={subject} value={subject} />
-                      ))}
-                    </datalist>
-                  </td>
-                  <td>
-                    <input
-                      list="ozon-categories"
-                      title={sku.ozonCategory}
-                      value={sku.ozonCategory}
-                      onChange={(event) => {
-                        const ozonCategory = canonicalLookupValue(event.target.value, ozonCategories);
-                        const categoryTypes = productTypesForOzonCategory(ozonCategory);
-                        updateSku(sku.id, {
-                          ozonCategory,
-                          ozonProductType: hasLookupValue(categoryTypes, sku.ozonProductType) ? canonicalLookupValue(sku.ozonProductType, categoryTypes) : ""
-                        });
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      list={`ozon-product-types-${sku.id}`}
-                      title={sku.ozonProductType}
-                      value={sku.ozonProductType}
-                      onChange={(event) => {
-                        const ozonProductType = canonicalLookupValue(event.target.value, productTypesForOzonCategory(sku.ozonCategory));
-                        updateSku(sku.id, {
-                          ozonProductType,
-                          ozonCategory: categoryForOzonProductType(ozonProductType, sku.ozonCategory) ?? sku.ozonCategory
-                        });
-                      }}
-                    />
-                    <datalist id={`ozon-product-types-${sku.id}`}>
-                      {lookupDatalistValues(productTypesForOzonCategory(sku.ozonCategory)).map((type) => (
-                        <option key={type} value={type} />
-                      ))}
-                    </datalist>
-                  </td>
-                  <td>
-                    <NumberInput value={sku.weightKg} onChange={(value) => updateSkuNumber(sku.id, "weightKg", value)} />
-                  </td>
-                  <td>
-                    <NumberInput value={sku.lengthCm} onChange={(value) => updateSkuNumber(sku.id, "lengthCm", value)} />
-                  </td>
-                  <td>
-                    <NumberInput value={sku.widthCm} onChange={(value) => updateSkuNumber(sku.id, "widthCm", value)} />
-                  </td>
-                  <td>
-                    <NumberInput value={sku.heightCm} onChange={(value) => updateSkuNumber(sku.id, "heightCm", value)} />
-                  </td>
-                  <td>
-                    <NumberInput value={sku.itemsPerPallet} onChange={(value) => updateSkuNumber(sku.id, "itemsPerPallet", value)} />
-                  </td>
-                  <td>
-                    <button type="button" className="icon-button" title="Удалить SKU" onClick={() => removeSku(sku.id)}>
-                      ×
-                    </button>
-                  </td>
-                </tr>
+                <SkuTableRow
+                  key={sku.id}
+                  lookups={lookups}
+                  onRemove={removeSku}
+                  onSkuChange={updateSku}
+                  onSkuNumberChange={updateSkuNumber}
+                  sku={sku}
+                />
               ))}
             </tbody>
           </table>
         </div>
         <datalist id="wb-categories">
-          {lookupDatalistValues(wbCategories).map((category) => (
+          {wbCategoryDatalistValues.map((category) => (
             <option key={category} value={category} />
           ))}
         </datalist>
         <datalist id="ozon-categories">
-          {lookupDatalistValues(ozonCategories).map((category) => (
+          {ozonCategoryDatalistValues.map((category) => (
             <option key={category} value={category} />
           ))}
         </datalist>
@@ -690,7 +600,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
 
       <section className="results" aria-label="Результаты">
         <div className="section-heading">
-          <h2>Сравнение схем</h2>
+          <h2>Сравнение затрат по схемам</h2>
           <span>{resultColumns.length} вариантов на каждый SKU</span>
         </div>
         <div className="matrix-wrap">
@@ -718,7 +628,7 @@ export function CalculatorApp({ tariffs, workspace }: CalculatorAppProps) {
                         <DimensionBadges classes={dimensionClasses} />
                       </div>
                       <span>
-                        {formatRub(displayPrice(sku.price, settings.vatDisplayMode))} цена {settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС"}
+                        {formatRub(displayPrice(sku.price, deferredCalculationSettings.vatDisplayMode))} цена {deferredCalculationSettings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС"}
                       </span>
                     </th>
                     <td>
@@ -1044,33 +954,35 @@ function AdminPanel({
   calculations,
   onClose,
   onSettingsChange,
-  settings
+  settings,
+  tariffs
 }: {
   calculations: Array<{ sku: SkuInput; result: CalculationResult }>;
   onClose: () => void;
   onSettingsChange: (patch: Partial<CalculatorSettings>) => void;
   settings: CalculatorSettings;
+  tariffs: TariffData;
 }) {
   const [isWarehousePriceListOpen, setIsWarehousePriceListOpen] = useState(false);
   const [isFulfillmentExtrasOpen, setIsFulfillmentExtrasOpen] = useState(false);
-  const groups = marginGroups(calculations, settings.vatDisplayMode);
+  const groups = useMemo(() => marginGroups(calculations, settings.vatDisplayMode), [calculations, settings.vatDisplayMode]);
   const marginVatLabel = settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
-  const markupBases = markupReferenceBases(settings);
-  const middleMileRows = middleMileMarkupRows(calculations);
-  const updateOperationRowMarkup = (operationKey: string, value: number) =>
+  const markupBases = useMemo(() => markupReferenceBases(settings, tariffs), [settings, tariffs]);
+  const middleMileRows = useMemo(() => middleMileMarkupRows(calculations, tariffs), [calculations, tariffs]);
+  const updateOperationRowMarkup = useCallback((operationKey: string, value: number) =>
     onSettingsChange({
       warehouseOperationRowMarkupPercents: {
         ...settings.warehouseOperationRowMarkupPercents,
         [operationKey]: value
       }
-    });
-  const updateFulfillmentExtra = (operationKey: string, isSelected: boolean) =>
+    }), [onSettingsChange, settings.warehouseOperationRowMarkupPercents]);
+  const updateFulfillmentExtra = useCallback((operationKey: string, isSelected: boolean) =>
     onSettingsChange({
       warehouseFulfillmentExtraOperations: {
         ...settings.warehouseFulfillmentExtraOperations,
         [operationKey]: isSelected
       }
-    });
+    }), [onSettingsChange, settings.warehouseFulfillmentExtraOperations]);
 
   return (
     <aside className="admin-panel" aria-label="Админ-панель">
@@ -1148,6 +1060,7 @@ function AdminPanel({
         <WarehousePriceListModal
           skus={calculations.map(({ sku }) => sku)}
           settings={settings}
+          tariffs={tariffs}
           isFulfillmentExtrasOpen={isFulfillmentExtrasOpen}
           onClose={() => setIsWarehousePriceListOpen(false)}
           onFulfillmentExtrasToggle={() => setIsFulfillmentExtrasOpen((value) => !value)}
@@ -1295,6 +1208,124 @@ function NumberInput({ value, onChange }: { value: number; onChange: (value: str
   return <input min="0" step="0.01" type="number" value={value || ""} onChange={(event) => onChange(event.target.value)} />;
 }
 
+const SkuTableRow = memo(function SkuTableRow({
+  lookups,
+  onRemove,
+  onSkuChange,
+  onSkuNumberChange,
+  sku
+}: {
+  lookups: CalculatorLookupData;
+  onRemove: (id: string) => void;
+  onSkuChange: (id: string, patch: Partial<SkuInput>) => void;
+  onSkuNumberChange: (id: string, field: NumericSkuField, value: string) => void;
+  sku: SkuInput;
+}) {
+  const wbSubjects = useMemo(() => subjectsForWbCategory(sku.wbCategory, lookups), [lookups, sku.wbCategory]);
+  const wbSubjectDatalistValues = useMemo(() => lookupDatalistValues(wbSubjects), [wbSubjects]);
+  const ozonProductTypes = useMemo(() => productTypesForOzonCategory(sku.ozonCategory, lookups), [lookups, sku.ozonCategory]);
+  const ozonProductTypeDatalistValues = useMemo(() => lookupDatalistValues(ozonProductTypes), [ozonProductTypes]);
+
+  return (
+    <tr>
+      <td>
+        <input title={sku.name} value={sku.name} onChange={(event) => onSkuChange(sku.id, { name: event.target.value })} />
+      </td>
+      <td>
+        <NumberInput value={sku.price} onChange={(value) => onSkuNumberChange(sku.id, "price", value)} />
+      </td>
+      <td>
+        <input
+          list="wb-categories"
+          title={sku.wbCategory}
+          value={sku.wbCategory}
+          onChange={(event) => {
+            const wbCategory = canonicalLookupValue(event.target.value, lookups.wbCategories);
+            const categorySubjects = subjectsForWbCategory(wbCategory, lookups);
+            onSkuChange(sku.id, {
+              wbCategory,
+              wbSubject: hasLookupValue(categorySubjects, sku.wbSubject) ? canonicalLookupValue(sku.wbSubject, categorySubjects) : ""
+            });
+          }}
+        />
+      </td>
+      <td>
+        <input
+          list={`wb-subjects-${sku.id}`}
+          title={sku.wbSubject}
+          value={sku.wbSubject}
+          onChange={(event) => {
+            const wbSubject = canonicalLookupValue(event.target.value, wbSubjects);
+            onSkuChange(sku.id, {
+              wbSubject,
+              wbCategory: categoryForWbSubject(wbSubject, sku.wbCategory, lookups) ?? sku.wbCategory
+            });
+          }}
+        />
+        <datalist id={`wb-subjects-${sku.id}`}>
+          {wbSubjectDatalistValues.map((subject) => (
+            <option key={subject} value={subject} />
+          ))}
+        </datalist>
+      </td>
+      <td>
+        <input
+          list="ozon-categories"
+          title={sku.ozonCategory}
+          value={sku.ozonCategory}
+          onChange={(event) => {
+            const ozonCategory = canonicalLookupValue(event.target.value, lookups.ozonCategories);
+            const categoryTypes = productTypesForOzonCategory(ozonCategory, lookups);
+            onSkuChange(sku.id, {
+              ozonCategory,
+              ozonProductType: hasLookupValue(categoryTypes, sku.ozonProductType) ? canonicalLookupValue(sku.ozonProductType, categoryTypes) : ""
+            });
+          }}
+        />
+      </td>
+      <td>
+        <input
+          list={`ozon-product-types-${sku.id}`}
+          title={sku.ozonProductType}
+          value={sku.ozonProductType}
+          onChange={(event) => {
+            const ozonProductType = canonicalLookupValue(event.target.value, ozonProductTypes);
+            onSkuChange(sku.id, {
+              ozonProductType,
+              ozonCategory: categoryForOzonProductType(ozonProductType, sku.ozonCategory, lookups) ?? sku.ozonCategory
+            });
+          }}
+        />
+        <datalist id={`ozon-product-types-${sku.id}`}>
+          {ozonProductTypeDatalistValues.map((type) => (
+            <option key={type} value={type} />
+          ))}
+        </datalist>
+      </td>
+      <td>
+        <NumberInput value={sku.weightKg} onChange={(value) => onSkuNumberChange(sku.id, "weightKg", value)} />
+      </td>
+      <td>
+        <NumberInput value={sku.lengthCm} onChange={(value) => onSkuNumberChange(sku.id, "lengthCm", value)} />
+      </td>
+      <td>
+        <NumberInput value={sku.widthCm} onChange={(value) => onSkuNumberChange(sku.id, "widthCm", value)} />
+      </td>
+      <td>
+        <NumberInput value={sku.heightCm} onChange={(value) => onSkuNumberChange(sku.id, "heightCm", value)} />
+      </td>
+      <td>
+        <NumberInput value={sku.itemsPerPallet} onChange={(value) => onSkuNumberChange(sku.id, "itemsPerPallet", value)} />
+      </td>
+      <td>
+        <button type="button" className="icon-button" title="Удалить SKU" onClick={() => onRemove(sku.id)}>
+          ×
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 function WarehousePriceListModal({
   isFulfillmentExtrasOpen,
   onClose,
@@ -1303,7 +1334,8 @@ function WarehousePriceListModal({
   onOperationRowMarkupChange,
   onSupplyTypeChange,
   skus,
-  settings
+  settings,
+  tariffs
 }: {
   isFulfillmentExtrasOpen: boolean;
   onClose: () => void;
@@ -1313,11 +1345,18 @@ function WarehousePriceListModal({
   onSupplyTypeChange: (value: CalculatorSettings["warehouseSupplyType"]) => void;
   skus: SkuInput[];
   settings: CalculatorSettings;
+  tariffs: TariffData;
 }) {
   const costHeader = "Себестоимость";
   const vatLabel = settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
-  const groupedOperations = warehousePriceListGroups(skus, settings, isFulfillmentExtrasOpen);
-  const operationCount = groupedOperations.reduce((sum, item) => sum + item.operations.length, 0);
+  const groupedOperations = useMemo(
+    () => warehousePriceListGroups(skus, settings, isFulfillmentExtrasOpen, tariffs),
+    [isFulfillmentExtrasOpen, settings.warehouseFulfillmentExtraOperations, settings.warehouseSupplyType, skus, tariffs]
+  );
+  const operationCount = useMemo(
+    () => groupedOperations.reduce((sum, item) => sum + item.operations.length, 0),
+    [groupedOperations]
+  );
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -1559,12 +1598,12 @@ function MarkupPairInput({
   );
 }
 
-function markupReferenceBases(settings: CalculatorSettings) {
-  const firstMileRoute = tariffData.logistics.firstMile.routes?.find(
+function markupReferenceBases(settings: CalculatorSettings, tariffs: TariffData) {
+  const firstMileRoute = tariffs.logistics.firstMile.routes?.find(
     (route) => route.originCity === settings.originCity && route.destinationCity === settings.firstMileCity
   );
-  const middlePrices = tariffData.middleMile.tiers.map((tier) => tier.priceRub);
-  const lastMileTariff = tariffData.logistics.pimLastMile;
+  const middlePrices = tariffs.middleMile.tiers.map((tier) => tier.priceRub);
+  const lastMileTariff = tariffs.logistics.pimLastMile;
   const lastMileRow = lastMileTariff.sellerTariffRows?.find((row) => row.city === settings.firstMileCity);
   const lastMileBaseSellerRub = settings.lastMileZone === "region" ? lastMileRow?.regionBaseRub : lastMileRow?.cityBaseRub;
   const lastMileAdditionalSellerRub = settings.lastMileZone === "region" ? lastMileRow?.regionExtraRubPerKg : lastMileRow?.cityExtraRubPerKg;
@@ -1586,13 +1625,13 @@ type MiddleMileMarkupSettingKey =
   | "middleMileFrom351To1000MarkupPercent"
   | "middleMileFrom1001MarkupPercent";
 
-function middleMileMarkupRows(calculations: Array<{ sku: SkuInput }>): Array<{
+function middleMileMarkupRows(calculations: Array<{ sku: SkuInput }>, tariffs: TariffData): Array<{
   baseRub: number;
   label: string;
   rubLabel: string;
   settingKey: MiddleMileMarkupSettingKey;
 }> {
-  const prices = tariffData.middleMile.tiers.map((tier) => tier.priceRub);
+  const prices = tariffs.middleMile.tiers.map((tier) => tier.priceRub);
   const rows: Array<{ baseRub: number; label: string; rubLabel: string; settingKey: MiddleMileMarkupSettingKey }> = [];
   const addRow = (row: { baseRub: number; label: string; rubLabel: string; settingKey: MiddleMileMarkupSettingKey }) => {
     if (!rows.some((item) => item.settingKey === row.settingKey)) rows.push(row);
@@ -1659,8 +1698,8 @@ function middleMileMarkupRows(calculations: Array<{ sku: SkuInput }>): Array<{
   return rows;
 }
 
-function warehousePriceListGroups(skus: SkuInput[], settings: CalculatorSettings, isFulfillmentExtrasOpen: boolean) {
-  const operations = tariffData.warehouse.operations ?? [];
+function warehousePriceListGroups(skus: SkuInput[], settings: CalculatorSettings, isFulfillmentExtrasOpen: boolean, tariffs: TariffData) {
+  const operations = tariffs.warehouse.operations ?? [];
   return warehouseGroupOrder
     .map((group) => ({
       group,
@@ -1899,30 +1938,32 @@ function normalizeLookupValue(value: string): string {
   return value.trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
 
-function subjectsForWbCategory(category: string): string[] {
-  const exactCategory = canonicalLookupValue(category, wbCategories);
-  return wbSubjectsByCategory[exactCategory] ?? wbSubjects;
+function subjectsForWbCategory(category: string, lookups: CalculatorLookupData): string[] {
+  const exactCategory = canonicalLookupValue(category, lookups.wbCategories);
+  return lookups.wbSubjectsByCategory[exactCategory] ?? lookups.wbSubjects;
 }
 
-function productTypesForOzonCategory(category: string): string[] {
-  const exactCategory = canonicalLookupValue(category, ozonCategories);
-  return ozonProductTypesByCategory[exactCategory] ?? ozonProductTypes;
+function productTypesForOzonCategory(category: string, lookups: CalculatorLookupData): string[] {
+  const exactCategory = canonicalLookupValue(category, lookups.ozonCategories);
+  return lookups.ozonProductTypesByCategory[exactCategory] ?? lookups.ozonProductTypes;
 }
 
-function categoryForWbSubject(subject: string, currentCategory: string): string | null {
-  const entries = tariffData.wildberriesCommissions.filter((item) => normalizeLookupValue(item.subject) === normalizeLookupValue(subject));
-  if (!entries.length) return null;
-  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
+function categoryForWbSubject(subject: string, currentCategory: string, lookups: CalculatorLookupData): string | null {
+  const exactSubject = canonicalLookupValue(subject, lookups.wbSubjects);
+  const categories = lookups.wbCategoriesBySubject[exactSubject] ?? [];
+  if (!categories.length) return null;
+  return categories.find((category) => normalizeLookupValue(category) === normalizeLookupValue(currentCategory)) ?? categories[0];
 }
 
-function categoryForOzonProductType(productType: string, currentCategory: string): string | null {
-  const entries = tariffData.ozonCommissions.filter((item) => normalizeLookupValue(item.productType) === normalizeLookupValue(productType));
-  if (!entries.length) return null;
-  return entries.find((item) => normalizeLookupValue(item.category) === normalizeLookupValue(currentCategory))?.category ?? entries[0].category;
+function categoryForOzonProductType(productType: string, currentCategory: string, lookups: CalculatorLookupData): string | null {
+  const exactProductType = canonicalLookupValue(productType, lookups.ozonProductTypes);
+  const categories = lookups.ozonCategoriesByProductType[exactProductType] ?? [];
+  if (!categories.length) return null;
+  return categories.find((category) => normalizeLookupValue(category) === normalizeLookupValue(currentCategory)) ?? categories[0];
 }
 
-function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean }) {
-  const displayBreakdown = breakdownItemsForDisplay(result);
+const ResultCell = memo(function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean }) {
+  const displayBreakdown = useMemo(() => breakdownItemsForDisplay(result), [result]);
 
   return (
     <td className={[isBest ? "result-cell best" : "result-cell", result.isComplete ? "" : "incomplete"].join(" ")}>
@@ -1938,7 +1979,7 @@ function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean 
         </div>
       ) : null}
       <details>
-        <summary>Статьи</summary>
+        <summary>Детализация</summary>
         <ul className="breakdown-list">
           {displayBreakdown.map((item) => (
             <li className={item.isWarning ? "breakdown-warning" : undefined} key={item.key}>
@@ -1959,7 +2000,7 @@ function ResultCell({ result, isBest }: { result: SchemeResult; isBest: boolean 
       </details>
     </td>
   );
-}
+});
 
 function BreakdownHelp({ item }: { item: SchemeResult["breakdown"][number] }) {
   const note = item.calculationNote ?? "Расчёт по выбранным параметрам SKU и тарифному справочнику.";
