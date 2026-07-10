@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   breakdownItemsForDisplay,
@@ -84,6 +84,7 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
   { value: "mix_pallet", label: "Микспаллета" },
   { value: "boxes", label: "Короба" }
 ];
+const autocompleteMaxOptions = 30;
 
 function createBlankSku(): SkuInput {
   return {
@@ -127,7 +128,6 @@ const workspaceMessages: Record<string, string> = {
 export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProps) {
   const fallbackDefaultSettings = useMemo(() => buildClientDefaultSettings(lookups), [lookups]);
   const sortedOriginCities = useMemo(() => [...lookups.originCities].sort(cityCollator.compare), [lookups.originCities]);
-  const wbCategoryDatalistValues = useMemo(() => lookupDatalistValues(lookups.wbCategories), [lookups.wbCategories]);
   const ozonCategoryDatalistValues = useMemo(() => lookupDatalistValues(lookups.ozonCategories), [lookups.ozonCategories]);
   const wbTariffInfo = tariffs.logistics.wildberriesLogistics;
   const [skus, setSkus] = useState<SkuInput[]>(() => workspace?.loadedCalculation?.snapshot.skus ?? [createBlankSku()]);
@@ -586,11 +586,6 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
             </tbody>
           </table>
         </div>
-        <datalist id="wb-categories">
-          {wbCategoryDatalistValues.map((category) => (
-            <option key={category} value={category} />
-          ))}
-        </datalist>
         <datalist id="ozon-categories">
           {ozonCategoryDatalistValues.map((category) => (
             <option key={category} value={category} />
@@ -969,20 +964,6 @@ function AdminPanel({
   const marginVatLabel = settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
   const markupBases = useMemo(() => markupReferenceBases(settings, tariffs), [settings, tariffs]);
   const middleMileRows = useMemo(() => middleMileMarkupRows(calculations, tariffs), [calculations, tariffs]);
-  const updateOperationRowMarkup = useCallback((operationKey: string, value: number) =>
-    onSettingsChange({
-      warehouseOperationRowMarkupPercents: {
-        ...settings.warehouseOperationRowMarkupPercents,
-        [operationKey]: value
-      }
-    }), [onSettingsChange, settings.warehouseOperationRowMarkupPercents]);
-  const updateFulfillmentExtra = useCallback((operationKey: string, isSelected: boolean) =>
-    onSettingsChange({
-      warehouseFulfillmentExtraOperations: {
-        ...settings.warehouseFulfillmentExtraOperations,
-        [operationKey]: isSelected
-      }
-    }), [onSettingsChange, settings.warehouseFulfillmentExtraOperations]);
 
   return (
     <aside className="admin-panel" aria-label="Админ-панель">
@@ -1064,9 +1045,7 @@ function AdminPanel({
           isFulfillmentExtrasOpen={isFulfillmentExtrasOpen}
           onClose={() => setIsWarehousePriceListOpen(false)}
           onFulfillmentExtrasToggle={() => setIsFulfillmentExtrasOpen((value) => !value)}
-          onFulfillmentExtraChange={updateFulfillmentExtra}
-          onOperationRowMarkupChange={updateOperationRowMarkup}
-          onSupplyTypeChange={(warehouseSupplyType) => onSettingsChange({ warehouseSupplyType })}
+          onApplySettings={onSettingsChange}
         />
       ) : null}
 
@@ -1208,6 +1187,138 @@ function NumberInput({ value, onChange }: { value: number; onChange: (value: str
   return <input min="0" step="0.01" type="number" value={value || ""} onChange={(event) => onChange(event.target.value)} />;
 }
 
+function lookupSuggestionResult(options: string[], query: string, maxOptions = autocompleteMaxOptions): { count: number; suggestions: string[] } {
+  const needle = normalizeLookupValue(query);
+  const suggestions: string[] = [];
+  let count = 0;
+
+  for (const option of options) {
+    if (needle && !normalizeLookupValue(option).includes(needle)) continue;
+    count += 1;
+    if (suggestions.length < maxOptions) {
+      suggestions.push(option);
+    }
+  }
+
+  return { count, suggestions };
+}
+
+function LookupAutocompleteInput({
+  emptyLabel,
+  maxOptions = autocompleteMaxOptions,
+  onCommit,
+  options,
+  title,
+  value
+}: {
+  emptyLabel: string;
+  maxOptions?: number;
+  onCommit: (value: string) => void;
+  options: string[];
+  title?: string;
+  value: string;
+}) {
+  const [query, setQuery] = useState(value);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const isChoosingOptionRef = useRef(false);
+  const normalizedValue = normalizeLookupValue(query);
+  const { count: matchingCount, suggestions } = useMemo(
+    () => lookupSuggestionResult(options, query, maxOptions),
+    [maxOptions, options, query]
+  );
+  const hasMoreSuggestions = matchingCount > suggestions.length;
+
+  useEffect(() => {
+    if (!isFocused) {
+      setQuery(value);
+    }
+  }, [isFocused, value]);
+
+  function chooseOption(option: string) {
+    setQuery(option);
+    onCommit(option);
+    setIsOpen(false);
+    window.setTimeout(() => {
+      isChoosingOptionRef.current = false;
+    }, 0);
+  }
+
+  function commitValue(valueToCommit = query) {
+    const nextValue = canonicalLookupValue(valueToCommit, options);
+    setQuery(nextValue);
+    onCommit(nextValue);
+    setIsOpen(false);
+  }
+
+  return (
+    <div className="combo lookup-combo">
+      <input
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        role="combobox"
+        title={title}
+        value={query}
+        onBlur={() => {
+          if (isChoosingOptionRef.current) {
+            isChoosingOptionRef.current = false;
+            return;
+          }
+          setIsFocused(false);
+          commitValue();
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => {
+          setIsFocused(true);
+          setIsOpen(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commitValue();
+          }
+          if (event.key === "Escape") {
+            setQuery(value);
+            setIsOpen(false);
+          }
+        }}
+      />
+      {isOpen ? (
+        <div className="combo-menu lookup-menu" role="listbox">
+          {suggestions.length ? (
+            <>
+              {suggestions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className="combo-option"
+                  role="option"
+                  aria-selected={normalizeLookupValue(option) === normalizedValue}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    isChoosingOptionRef.current = true;
+                    chooseOption(option);
+                  }}
+                >
+                  {option}
+                </button>
+              ))}
+              {hasMoreSuggestions ? (
+                <div className="combo-note">Показаны первые {maxOptions} совпадений. Уточните запрос.</div>
+              ) : null}
+            </>
+          ) : (
+            <div className="combo-empty">{emptyLabel}</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const SkuTableRow = memo(function SkuTableRow({
   lookups,
   onRemove,
@@ -1222,9 +1333,7 @@ const SkuTableRow = memo(function SkuTableRow({
   sku: SkuInput;
 }) {
   const wbSubjects = useMemo(() => subjectsForWbCategory(sku.wbCategory, lookups), [lookups, sku.wbCategory]);
-  const wbSubjectDatalistValues = useMemo(() => lookupDatalistValues(wbSubjects), [wbSubjects]);
   const ozonProductTypes = useMemo(() => productTypesForOzonCategory(sku.ozonCategory, lookups), [lookups, sku.ozonCategory]);
-  const ozonProductTypeDatalistValues = useMemo(() => lookupDatalistValues(ozonProductTypes), [ozonProductTypes]);
 
   return (
     <tr>
@@ -1235,12 +1344,13 @@ const SkuTableRow = memo(function SkuTableRow({
         <NumberInput value={sku.price} onChange={(value) => onSkuNumberChange(sku.id, "price", value)} />
       </td>
       <td>
-        <input
-          list="wb-categories"
+        <LookupAutocompleteInput
+          emptyLabel="Категория WB не найдена"
+          options={lookups.wbCategories}
           title={sku.wbCategory}
           value={sku.wbCategory}
-          onChange={(event) => {
-            const wbCategory = canonicalLookupValue(event.target.value, lookups.wbCategories);
+          onCommit={(value) => {
+            const wbCategory = canonicalLookupValue(value, lookups.wbCategories);
             const categorySubjects = subjectsForWbCategory(wbCategory, lookups);
             onSkuChange(sku.id, {
               wbCategory,
@@ -1250,23 +1360,19 @@ const SkuTableRow = memo(function SkuTableRow({
         />
       </td>
       <td>
-        <input
-          list={`wb-subjects-${sku.id}`}
+        <LookupAutocompleteInput
+          emptyLabel="Предмет WB не найден"
+          options={wbSubjects}
           title={sku.wbSubject}
           value={sku.wbSubject}
-          onChange={(event) => {
-            const wbSubject = canonicalLookupValue(event.target.value, wbSubjects);
+          onCommit={(value) => {
+            const wbSubject = canonicalLookupValue(value, wbSubjects);
             onSkuChange(sku.id, {
               wbSubject,
               wbCategory: categoryForWbSubject(wbSubject, sku.wbCategory, lookups) ?? sku.wbCategory
             });
           }}
         />
-        <datalist id={`wb-subjects-${sku.id}`}>
-          {wbSubjectDatalistValues.map((subject) => (
-            <option key={subject} value={subject} />
-          ))}
-        </datalist>
       </td>
       <td>
         <input
@@ -1284,23 +1390,19 @@ const SkuTableRow = memo(function SkuTableRow({
         />
       </td>
       <td>
-        <input
-          list={`ozon-product-types-${sku.id}`}
+        <LookupAutocompleteInput
+          emptyLabel="Тип товара не найден"
+          options={ozonProductTypes}
           title={sku.ozonProductType}
           value={sku.ozonProductType}
-          onChange={(event) => {
-            const ozonProductType = canonicalLookupValue(event.target.value, ozonProductTypes);
+          onCommit={(value) => {
+            const ozonProductType = canonicalLookupValue(value, ozonProductTypes);
             onSkuChange(sku.id, {
               ozonProductType,
               ozonCategory: categoryForOzonProductType(ozonProductType, sku.ozonCategory, lookups) ?? sku.ozonCategory
             });
           }}
         />
-        <datalist id={`ozon-product-types-${sku.id}`}>
-          {ozonProductTypeDatalistValues.map((type) => (
-            <option key={type} value={type} />
-          ))}
-        </datalist>
       </td>
       <td>
         <NumberInput value={sku.weightKg} onChange={(value) => onSkuNumberChange(sku.id, "weightKg", value)} />
@@ -1328,35 +1430,64 @@ const SkuTableRow = memo(function SkuTableRow({
 
 function WarehousePriceListModal({
   isFulfillmentExtrasOpen,
+  onApplySettings,
   onClose,
-  onFulfillmentExtraChange,
   onFulfillmentExtrasToggle,
-  onOperationRowMarkupChange,
-  onSupplyTypeChange,
   skus,
   settings,
   tariffs
 }: {
   isFulfillmentExtrasOpen: boolean;
+  onApplySettings: (patch: Partial<CalculatorSettings>) => void;
   onClose: () => void;
-  onFulfillmentExtraChange: (operationKey: string, isSelected: boolean) => void;
   onFulfillmentExtrasToggle: () => void;
-  onOperationRowMarkupChange: (operationKey: string, value: number) => void;
-  onSupplyTypeChange: (value: CalculatorSettings["warehouseSupplyType"]) => void;
   skus: SkuInput[];
   settings: CalculatorSettings;
   tariffs: TariffData;
 }) {
+  const [draftSettings, setDraftSettings] = useState(settings);
   const costHeader = "Себестоимость";
-  const vatLabel = settings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
+  const vatLabel = draftSettings.vatDisplayMode === "with_vat" ? "с НДС" : "без НДС";
   const groupedOperations = useMemo(
-    () => warehousePriceListGroups(skus, settings, isFulfillmentExtrasOpen, tariffs),
-    [isFulfillmentExtrasOpen, settings.warehouseFulfillmentExtraOperations, settings.warehouseSupplyType, skus, tariffs]
+    () => warehousePriceListGroups(skus, draftSettings, isFulfillmentExtrasOpen, tariffs),
+    [draftSettings, isFulfillmentExtrasOpen, skus, tariffs]
   );
   const operationCount = useMemo(
     () => groupedOperations.reduce((sum, item) => sum + item.operations.length, 0),
     [groupedOperations]
   );
+  const applyDraftAndClose = useCallback(() => {
+    onApplySettings({
+      warehouseFulfillmentExtraOperations: draftSettings.warehouseFulfillmentExtraOperations,
+      warehouseOperationRowMarkupPercents: draftSettings.warehouseOperationRowMarkupPercents,
+      warehouseSupplyType: draftSettings.warehouseSupplyType
+    });
+    onClose();
+  }, [
+    draftSettings.warehouseFulfillmentExtraOperations,
+    draftSettings.warehouseOperationRowMarkupPercents,
+    draftSettings.warehouseSupplyType,
+    onApplySettings,
+    onClose
+  ]);
+  const updateDraftOperationRowMarkup = useCallback((operationKey: string, value: number) => {
+    setDraftSettings((current) => ({
+      ...current,
+      warehouseOperationRowMarkupPercents: {
+        ...current.warehouseOperationRowMarkupPercents,
+        [operationKey]: value
+      }
+    }));
+  }, []);
+  const updateDraftFulfillmentExtra = useCallback((operationKey: string, isSelected: boolean) => {
+    setDraftSettings((current) => ({
+      ...current,
+      warehouseFulfillmentExtraOperations: {
+        ...current.warehouseFulfillmentExtraOperations,
+        [operationKey]: isSelected
+      }
+    }));
+  }, []);
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -1388,8 +1519,8 @@ function WarehousePriceListModal({
               {groupedOperations.map(({ group, operations }) =>
                 operations.map((operation, index) => {
                   const operationKey = warehouseOperationKey(operation, group);
-                  const markupPercent = warehouseOperationMarkupPercent(settings, group, operationKey);
-                  const costRub = displayWarehousePrice(operation.priceRub, settings.vatDisplayMode);
+                  const markupPercent = warehouseOperationMarkupPercent(draftSettings, group, operationKey);
+                  const costRub = displayWarehousePrice(operation.priceRub, draftSettings.vatDisplayMode);
                   const saleRub = roundRub(costRub * (1 + markupPercent / 100));
                   return (
                     <tr key={`${group}-${operationKey}`}>
@@ -1420,8 +1551,13 @@ function WarehousePriceListModal({
                               <label>
                                 <span>Тип поставки</span>
                                 <select
-                                  value={settings.warehouseSupplyType}
-                                  onChange={(event) => onSupplyTypeChange(event.target.value as CalculatorSettings["warehouseSupplyType"])}
+                                  value={draftSettings.warehouseSupplyType}
+                                  onChange={(event) => {
+                                    setDraftSettings((current) => ({
+                                      ...current,
+                                      warehouseSupplyType: event.target.value as CalculatorSettings["warehouseSupplyType"]
+                                    }));
+                                  }}
                                 >
                                   {warehouseSupplyTypeOptions.map((option) => (
                                     <option key={option.value} value={option.value}>
@@ -1439,13 +1575,13 @@ function WarehousePriceListModal({
                           {isFulfillmentExtraOperation(operation.name) ? (
                             <input
                               aria-label={`${displayWarehouseOperationName(operation.name, group)}: участвует в расчете`}
-                              checked={settings.warehouseFulfillmentExtraOperations[operationKey] === true}
+                              checked={draftSettings.warehouseFulfillmentExtraOperations[operationKey] === true}
                               type="checkbox"
-                              onChange={(event) => onFulfillmentExtraChange(operationKey, event.target.checked)}
+                              onChange={(event) => updateDraftFulfillmentExtra(operationKey, event.target.checked)}
                             />
                           ) : (
                             <span
-                              className={warehouseOperationSelected(group, operation.name, settings.warehouseSupplyType, settings) ? "operation-check active" : "operation-check"}
+                              className={warehouseOperationSelected(group, operation.name, draftSettings.warehouseSupplyType, draftSettings) ? "operation-check active" : "operation-check"}
                               aria-hidden="true"
                             >
                               ✓
@@ -1469,13 +1605,10 @@ function WarehousePriceListModal({
                       <td>{operation.unit}</td>
                       <td className="numeric">{formatRub(costRub)}</td>
                       <td className="numeric price-list-markup">
-                        <input
-                          aria-label={`${displayWarehouseOperationName(operation.name, group)}: процент наценки`}
-                          min="0"
-                          step="1"
-                          type="number"
+                        <WarehouseMarkupInput
+                          label={`${displayWarehouseOperationName(operation.name, group)}: процент наценки`}
                           value={markupPercent}
-                          onChange={(event) => onOperationRowMarkupChange(operationKey, parseInputNumber(event.target.value))}
+                          onChange={(value) => updateDraftOperationRowMarkup(operationKey, value)}
                         />
                       </td>
                       <td className="numeric">{formatRub(saleRub)}</td>
@@ -1486,8 +1619,57 @@ function WarehousePriceListModal({
             </tbody>
           </table>
         </div>
+        <div className="price-list-footer">
+          <button className="link-button subtle" type="button" onClick={onClose}>
+            Отмена
+          </button>
+          <button className="primary-action" type="button" onClick={applyDraftAndClose}>
+            Применить
+          </button>
+        </div>
       </section>
     </div>
+  );
+}
+
+function WarehouseMarkupInput({
+  label,
+  onChange,
+  value
+}: {
+  label: string;
+  onChange: (value: number) => void;
+  value: number;
+}) {
+  const formattedValue = formatPercentInput(value);
+  const [draft, setDraft] = useState(formattedValue);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formattedValue);
+    }
+  }, [formattedValue, isFocused]);
+
+  return (
+    <input
+      aria-label={label}
+      inputMode="decimal"
+      type="text"
+      value={isFocused ? draft : formattedValue}
+      onBlur={() => {
+        setIsFocused(false);
+        setDraft(formatPercentInput(value));
+      }}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        onChange(parseInputNumber(event.target.value));
+      }}
+      onFocus={() => {
+        setIsFocused(true);
+        setDraft(formattedValue);
+      }}
+    />
   );
 }
 
@@ -2080,6 +2262,10 @@ function formatNumber(value: number) {
 
 function formatMoneyInput(value: number) {
   return roundRub(value).toFixed(2);
+}
+
+function formatPercentInput(value: number) {
+  return Number.isInteger(value) ? String(value) : String(roundPercentInput(value));
 }
 
 function parseInputNumber(value: string) {
