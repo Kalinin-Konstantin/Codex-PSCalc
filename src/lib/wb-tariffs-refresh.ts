@@ -53,7 +53,7 @@ export function buildWildberriesLogisticsSnapshot(options: {
 
   return {
     source: "WB API: /api/v1/tariffs/box, /api/v1/tariffs/pallet, /api/tariffs/v1/acceptance/coefficients",
-    commissionSource: "сomission.xlsx; WB API kgvpPickup is not mapped to FBO",
+    commissionSource: "KVV_Wildberries_комиссии_с_07.07.26.xlsx; WB API kgvpPickup is not mapped to FBO",
     status: "official WB API import",
     calculationDate: options.date,
     importedAt: new Date().toISOString(),

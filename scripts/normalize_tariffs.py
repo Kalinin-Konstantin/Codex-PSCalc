@@ -16,7 +16,7 @@ from docx import Document
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "src" / "data" / "generated"
 
-WB_FILE = ROOT / "сomission.xlsx"
+WB_FILE = ROOT / "KVV_Wildberries_комиссии_с_07.07.26.xlsx"
 OZON_FILE = ROOT / "Таблица_категорий_для_расчёта_вознаграждения_06042026-2_1773932702.xlsx"
 WAREHOUSE_FILE = ROOT / "Складские операции.docx"
 MIDDLE_MILE_FILE = ROOT / "Средняя миля .docx"
@@ -88,40 +88,56 @@ def cell_value(cell: ET.Element, shared_strings: list[str]) -> Any:
 
 
 def normalize_wb() -> dict[str, Any]:
+    column_aliases = {
+        "category": ["Категория", "Название родителя"],
+        "subject": ["Предмет", "Название предмета"],
+        "fbo": ["Склад WB, %", "Склад WB (FBW), %"],
+        "fbs": ["Склад продавца - везу на склад WB, %", "Маркетплейс (FBS), %"],
+        "dbs": ["Склад продавца - везу самостоятельно до клиента, %", "Витрина (DBS) / Курьер WB (DBW) / Доставка в ПВЗ (DBS в ПВЗ), %"],
+        "dbsExpressIgnored": ["Склад продавца - везу самостоятельно до клиента экспресс, %", "Витрина экспресс (EDBS), %"],
+        "pickupIgnored": ["Склад продавца - самовывоз", "Самовывоз из магазина продавца (C&C), %"],
+    }
     entries: list[dict[str, Any]] = []
-    with ZipFile(WB_FILE) as zf:
-        shared = read_shared_strings(zf)
-        sheet = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
-        rows = sheet.findall(".//x:sheetData/x:row", NS)
-        for row in rows[1:]:
-            values = [cell_value(cell, shared) for cell in row.findall("x:c", NS)]
-            if len(values) < 6:
-                continue
-            category = clean_text(values[0])
-            subject = clean_text(values[1])
-            fbo = parse_percent(values[2])
-            fbs = parse_percent(values[3])
-            dbs = parse_percent(values[4])
-            if not category or not subject or fbo is None or fbs is None or dbs is None:
-                continue
-            entries.append(
-                {
-                    "category": category,
-                    "subject": subject,
-                    "commission": {"fbo": fbo, "fbs": fbs, "dbs": dbs},
-                }
-            )
+    wb = openpyxl.load_workbook(WB_FILE, read_only=True, data_only=True)
+    ws = wb.active
+    header = [clean_text(value) for value in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+
+    def column_index(key: str) -> int:
+        for alias in column_aliases[key]:
+            if alias in header:
+                return header.index(alias)
+        raise ValueError(f"WB commission file {WB_FILE.name} is missing required column for {key}: {column_aliases[key]}")
+
+    columns = {key: column_index(key) for key in ["category", "subject", "fbo", "fbs", "dbs"]}
+    mapping = {key: header[column_index(key)] for key in column_aliases}
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        values = list(row)
+        category = clean_text(values[columns["category"]] if len(values) > columns["category"] else None)
+        subject = clean_text(values[columns["subject"]] if len(values) > columns["subject"] else None)
+        fbo = parse_percent(values[columns["fbo"]] if len(values) > columns["fbo"] else None)
+        fbs = parse_percent(values[columns["fbs"]] if len(values) > columns["fbs"] else None)
+        dbs = parse_percent(values[columns["dbs"]] if len(values) > columns["dbs"] else None)
+        if not category or not subject or fbo is None or fbs is None or dbs is None:
+            continue
+        entries.append(
+            {
+                "category": category,
+                "subject": subject,
+                "commission": {"fbo": fbo, "fbs": fbs, "dbs": dbs},
+            }
+        )
     return {
         "source": WB_FILE.name,
         "marketplace": "wildberries",
         "columnMapping": {
-            "category": "Категория",
-            "subject": "Предмет",
-            "fbo": "Склад WB, %",
-            "fbs": "Склад продавца - везу на склад WB, %",
-            "dbs": "Склад продавца - везу самостоятельно до клиента, %",
-            "dbsExpressIgnored": "Склад продавца - везу самостоятельно до клиента экспресс, %",
-            "pickupIgnored": "Склад продавца - самовывоз",
+            "category": mapping["category"],
+            "subject": mapping["subject"],
+            "fbo": mapping["fbo"],
+            "fbs": mapping["fbs"],
+            "dbs": mapping["dbs"],
+            "dbsExpressIgnored": mapping["dbsExpressIgnored"],
+            "pickupIgnored": mapping["pickupIgnored"],
         },
         "entries": entries,
     }

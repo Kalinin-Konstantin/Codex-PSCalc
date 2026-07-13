@@ -147,7 +147,7 @@ const warehouseNames = Array.from(new Set([...boxMap.keys(), ...palletMap.keys()
 
 logistics.wildberriesLogistics = {
   source: "WB API: /api/v1/tariffs/box, /api/v1/tariffs/pallet, /api/tariffs/v1/acceptance/coefficients",
-  commissionSource: "сomission.xlsx; WB API kgvpPickup is not mapped to FBO",
+  commissionSource: "KVV_Wildberries_комиссии_с_07.07.26.xlsx; WB API kgvpPickup is not mapped to FBO",
   status: "official WB API import",
   calculationDate: date,
   importedAt: new Date().toISOString(),
@@ -197,4 +197,4 @@ logistics.wildberriesLogistics = {
 
 await writeFile(new URL("logistics-assumptions.json", GENERATED), `${JSON.stringify(logistics, null, 2)}\n`, "utf8");
 
-console.log(`Imported WB logistics for ${date}: ${warehouseNames.length} warehouses. WB commissions remain sourced from сomission.xlsx`);
+console.log(`Imported WB logistics for ${date}: ${warehouseNames.length} warehouses. WB commissions remain sourced from KVV_Wildberries_комиссии_с_07.07.26.xlsx`);

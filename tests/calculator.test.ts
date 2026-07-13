@@ -321,14 +321,14 @@ test("commission lookups use marketplace source files", () => {
 });
 
 test("wildberries commission columns are mapped to FBO/FBS/DBS schemes", () => {
-  assert.equal(wbSource.source, "сomission.xlsx");
-  assert.equal(wbSource.columnMapping.fbo, "Склад WB, %");
-  assert.equal(wbSource.columnMapping.fbs, "Склад продавца - везу на склад WB, %");
-  assert.equal(wbSource.columnMapping.dbs, "Склад продавца - везу самостоятельно до клиента, %");
+  assert.equal(wbSource.source, "KVV_Wildberries_комиссии_с_07.07.26.xlsx");
+  assert.equal(wbSource.columnMapping.fbo, "Склад WB (FBW), %");
+  assert.equal(wbSource.columnMapping.fbs, "Маркетплейс (FBS), %");
+  assert.equal(wbSource.columnMapping.dbs, "Витрина (DBS) / Курьер WB (DBW) / Доставка в ПВЗ (DBS в ПВЗ), %");
 
   const first = tariffs.wildberriesCommissions.find((entry) => entry.subject === "Вешалки настенные");
   assert.ok(first);
-  assert.deepEqual(first.commission, { fbo: 0.265, fbs: 0.3, dbs: 0.25 });
+  assert.deepEqual(first.commission, { fbo: 0.355, fbs: 0.4, dbs: 0.45 });
 });
 
 test("wildberries kitchen mixer uses selected category subject and mapped scheme columns", () => {
@@ -341,7 +341,7 @@ test("wildberries kitchen mixer uses selected category subject and mapped scheme
     tariffs.wildberriesCommissions
   );
 
-  assert.deepEqual(mixer, { fbo: 0.22, fbs: 0.255, dbs: 0.15 });
+  assert.deepEqual(mixer, { fbo: 0.31, fbs: 0.355, dbs: 0.35 });
   assert.deepEqual(lowercaseMixer, mixer);
 });
 
@@ -736,9 +736,9 @@ test("VAT display mode keeps marketplace gross tariffs and adds VAT to PIM tarif
   assert.equal(withoutVat.priceBasisRub, 3319.67);
   assert.equal(withVat.priceBasisRub, 4050);
 
-  assert.equal(part(withoutVat, "commission")?.amountRub, 995.9);
-  assert.equal(part(withVat, "commission")?.amountRub, 1215);
-  assert.equal(part(withoutVat, "commission")?.label, "Комиссия маркетплейса 30%");
+  assert.equal(part(withoutVat, "commission")?.amountRub, 1327.87);
+  assert.equal(part(withVat, "commission")?.amountRub, 1620);
+  assert.equal(part(withoutVat, "commission")?.label, "Комиссия маркетплейса 40%");
   assert.equal(part(withoutVat, "commission")?.vatNote, "без НДС");
   assert.equal(part(withVat, "commission")?.vatNote, "с НДС");
 
@@ -800,7 +800,7 @@ test("PIM commercial markups apply before VAT and stay hidden in client mode", (
   assert.match(part(dbs, "lastMile")?.calculationNote ?? "", /сверх лимита 5,39 кг × 22,05 ₽\/кг = 118,82 ₽/);
   assert.match(part(dbs, "lastMile")?.calculationNote ?? "", /Итого: 608,12 ₽ без НДС/);
   assert.doesNotMatch(part(dbs, "lastMile")?.calculationNote ?? "", /Коммерческие условия учтены/);
-  assert.equal(part(fbs, "commission")?.amountRub, 995.9);
+  assert.equal(part(fbs, "commission")?.amountRub, 1327.87);
   assert.equal(part(fbs, "firstMile")?.internalNote, undefined);
   assert.equal(part(fbs, "firstMile")?.pimProfitCenter, "firstMile");
   assert.equal(part(fbs, "firstMile")?.pimProfitWithoutVatRub, 33.32);
@@ -1102,12 +1102,12 @@ test("fast handover discounts apply only to FBS with marketplace-specific rules"
   );
   const part = (result: typeof withDiscount.wildberries.fbs, key: string) => result.breakdown.find((item) => item.key === key);
 
-  assert.equal(part(withoutDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 26.5%");
-  assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 26.5%");
-  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.label, "Комиссия маркетплейса 28.5% (30%-1.5%)");
-  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.amountRub, 946.11);
+  assert.equal(part(withoutDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 35.5%");
+  assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 35.5%");
+  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.label, "Комиссия маркетплейса 38.5% (40%-1.5%)");
+  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.amountRub, 1278.07);
   assert.match(part(withDiscount.wildberries.fbs, "commission")?.calculationNote ?? "", /Снижение 1\.5% применяется за Быструю сдачу/);
-  assert.equal(part(withDiscount.wildberries.dbs, "commission")?.label, "Комиссия маркетплейса 25%");
+  assert.equal(part(withDiscount.wildberries.dbs, "commission")?.label, "Комиссия маркетплейса 45%");
   assert.equal(part(withDiscount.wildberries.dbs, "fastHandoverDiscount"), undefined);
 
   assert.equal(part(withDiscount.ozon.fbo, "commission")?.label, "Комиссия маркетплейса 44%");
@@ -1154,15 +1154,15 @@ test("dimension warnings are non-blocking and WB SGT does not receive fast hando
   const commission = sgt.wildberries.fbs.breakdown.find((item) => item.key === "commission");
 
   assert.equal(sgt.wildberries.fbs.isComplete, true);
-  assert.equal(commission?.label, "Комиссия маркетплейса 30%");
-  assert.equal(commission?.amountRub, 995.9);
+  assert.equal(commission?.label, "Комиссия маркетплейса 40%");
+  assert.equal(commission?.amountRub, 1327.87);
   assert.ok(sgt.wildberries.fbs.warnings.some((warning) => warning.includes("WB СГТ")));
   assert.ok(sgt.wildberries.fbs.warnings.some((warning) => warning.includes("скидка за быструю сдачу не применяется")));
   assert.deepEqual(sgt.ozon.fbs.warnings.filter((warning) => warning.includes("Ozon КГТ")), []);
   assert.equal(kgtPlus.wildberries.fbs.isComplete, true);
   assert.equal(
     kgtPlus.wildberries.fbs.breakdown.find((item) => item.key === "commission")?.label,
-    "Комиссия маркетплейса 28.5% (30%-1.5%)"
+    "Комиссия маркетплейса 38.5% (40%-1.5%)"
   );
   assert.ok(kgtPlus.wildberries.fbs.warnings.some((warning) => warning.includes("WB КГТ+")));
   assert.deepEqual(kgtPlus.ozon.fbs.warnings.filter((warning) => warning.includes("Ozon КГТ")), []);
@@ -1447,9 +1447,9 @@ test("scheme totals equal the rounded sum of their breakdown items", () => {
 test("display breakdown follows client article order without changing totals", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const expectedOrders = new Map([
-    [result.wildberries.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 26.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
-    [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 30%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
-    [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 25%", "Операции PIM.Seller", "Последняя миля"]],
+    [result.wildberries.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 35.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
+    [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 40%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
+    [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 45%", "Операции PIM.Seller", "Последняя миля"]],
     [result.ozon.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Последняя миля"]]
@@ -1557,5 +1557,5 @@ test("golden furniture examples have stable best options", () => {
     const best = findBestResult(calculateAllSchemes(sku, settings, tariffs));
     return `${sku.id}:${best.marketplace}:${best.scheme}`;
   });
-  assert.deepEqual(bestBySku, ["hanger:wildberries:dbs", "cabinet:ozon:fbo", "table:wildberries:dbs"]);
+  assert.deepEqual(bestBySku, ["hanger:ozon:fbo", "cabinet:ozon:fbo", "table:ozon:fbo"]);
 });

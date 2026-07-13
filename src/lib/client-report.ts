@@ -275,7 +275,7 @@ function buildInputsSheet(
     ["Дней хранения", settings.storageDays],
     ["Быстрая сдача", settings.fastHandover ? "Да" : "Нет"],
     ["Режим НДС", settings.vatDisplayMode === "with_vat" ? "с НДС 22%" : "без НДС"],
-    ["Источник комиссий WB", tariffs.logistics.wildberriesLogistics.commissionSource ?? "сomission.xlsx"],
+    ["Источник комиссий WB", tariffs.logistics.wildberriesLogistics.commissionSource ?? "KVV_Wildberries_комиссии_с_07.07.26.xlsx"],
     ["Источник тарифов Ozon", tariffs.logistics.ozonLogistics.source ?? "Тарифные справочники Ozon"],
     [],
     [
