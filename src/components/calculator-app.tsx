@@ -14,7 +14,6 @@ import {
   labelForWbSupplyType
 } from "../lib/calculator.ts";
 import { buildClientDefaultSettings, ozonClusterForCityWithLookups, type CalculatorLookupData } from "../lib/calculator-lookups";
-import { defaultSkus } from "../lib/default-skus";
 import { createClientReportBlob } from "../lib/client-report";
 import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
 import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
@@ -91,9 +90,9 @@ const autocompleteMinHeightPx = 80;
 const autocompleteGapPx = 4;
 const inputCommitDelayMs = 220;
 
-function createBlankSku(): SkuInput {
+function createBlankSku(id = "blank-sku"): SkuInput {
   return {
-    id: "blank-sku",
+    id,
     name: "",
     price: 0,
     wbCategory: "",
@@ -206,14 +205,7 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
   }, [updateSku]);
 
   const addSku = useCallback(() => {
-    setSkus((current) => [
-      ...current,
-      {
-        ...(current[current.length - 1] ?? defaultSkus[0]),
-        id: crypto.randomUUID(),
-        name: `SKU ${current.length + 1}`
-      }
-    ]);
+    setSkus((current) => [...current, createBlankSku(crypto.randomUUID())]);
   }, []);
 
   const removeSku = useCallback((id: string) => {
@@ -1405,7 +1397,9 @@ function LookupAutocompleteInput({
         scrollContainer instanceof HTMLElement && hasHorizontalScrollbar
           ? Math.max(12, scrollContainer.offsetHeight - scrollContainer.clientHeight)
           : 0;
-      const boundaryTop = Math.max(0, scrollContainerRect?.top ?? 0);
+      // The menu is portaled to the viewport, so an upward-opening list can
+      // use the space above the SKU table instead of collapsing to one row.
+      const boundaryTop = autocompleteGapPx;
       const boundaryBottom = Math.min(window.innerHeight, (scrollContainerRect?.bottom ?? window.innerHeight) - horizontalScrollbarReserve - autocompleteGapPx);
       const estimatedMenuHeight = estimateAutocompleteMenuHeight(suggestions.length, hasMoreSuggestions);
       const spaceBelow = Math.max(0, boundaryBottom - rect.bottom - autocompleteGapPx);
