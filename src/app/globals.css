@@ -491,6 +491,7 @@ select:disabled {
 
 .combo {
   position: relative;
+  width: 100%;
   z-index: 5;
 }
 
@@ -551,7 +552,19 @@ select:disabled {
 }
 
 .lookup-menu {
-  min-width: 260px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.lookup-menu-portal {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  box-sizing: border-box;
+  max-width: none;
+  min-width: 0;
+  z-index: 2200;
 }
 
 .shell {
@@ -2478,6 +2491,8 @@ tbody tr:hover th {
 
 .sku-table th:first-child,
 .sku-table td:first-child {
+  z-index: 20;
+  background: #ffffff;
   box-shadow: 3px 0 8px rgba(23, 33, 27, 0.05), 1px 0 0 var(--line);
 }
 
@@ -2485,14 +2500,20 @@ tbody tr:hover th {
 .sku-table td:nth-child(2) {
   position: sticky;
   left: 200px;
-  z-index: 2;
+  z-index: 20;
   background: #ffffff;
   box-shadow: 3px 0 8px rgba(23, 33, 27, 0.04), 1px 0 0 var(--line);
 }
 
+.sku-table thead th:first-child,
 .sku-table thead th:nth-child(2) {
-  z-index: 4;
+  z-index: 30;
   background: #eef3ec;
+}
+
+.sku-table tbody tr:hover td:first-child,
+.sku-table tbody tr:hover td:nth-child(2) {
+  background: #fbfdf9;
 }
 
 .sku-table input {

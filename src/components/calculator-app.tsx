@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { MutableRefObject, ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   breakdownItemsForDisplay,
   calculateAllSchemes,
@@ -85,6 +86,10 @@ const warehouseSupplyTypeOptions: Array<{ label: string; value: CalculatorSettin
   { value: "boxes", label: "Короба" }
 ];
 const autocompleteMaxOptions = 30;
+const autocompleteMaxHeightPx = 240;
+const autocompleteMinHeightPx = 80;
+const autocompleteGapPx = 4;
+const inputCommitDelayMs = 220;
 
 function createBlankSku(): SkuInput {
   return {
@@ -128,7 +133,6 @@ const workspaceMessages: Record<string, string> = {
 export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProps) {
   const fallbackDefaultSettings = useMemo(() => buildClientDefaultSettings(lookups), [lookups]);
   const sortedOriginCities = useMemo(() => [...lookups.originCities].sort(cityCollator.compare), [lookups.originCities]);
-  const ozonCategoryDatalistValues = useMemo(() => lookupDatalistValues(lookups.ozonCategories), [lookups.ozonCategories]);
   const wbTariffInfo = tariffs.logistics.wildberriesLogistics;
   const [skus, setSkus] = useState<SkuInput[]>(() => workspace?.loadedCalculation?.snapshot.skus ?? [createBlankSku()]);
   const initialSettings = useMemo(
@@ -184,7 +188,17 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
   );
 
   const updateSku = useCallback((id: string, patch: Partial<SkuInput>) => {
-    setSkus((current) => current.map((sku) => (sku.id === id ? { ...sku, ...patch } : sku)));
+    setSkus((current) => {
+      let changed = false;
+      const nextSkus = current.map((sku) => {
+        if (sku.id !== id) return sku;
+        const hasSkuChanges = Object.entries(patch).some(([key, value]) => sku[key as keyof SkuInput] !== value);
+        if (!hasSkuChanges) return sku;
+        changed = true;
+        return { ...sku, ...patch };
+      });
+      return changed ? nextSkus : current;
+    });
   }, []);
 
   const updateSkuNumber = useCallback((id: string, field: NumericSkuField, value: string) => {
@@ -345,22 +359,18 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
             </label>
             <label>
               <span>Индекс локализации</span>
-              <input
-                min="0"
+              <NumberInput
                 step="0.05"
-                type="number"
                 value={settings.localizationIndex}
-                onChange={(event) => setSettings({ ...settings, localizationIndex: Number(event.target.value) || 0 })}
+                onChange={(value) => setSettings((current) => ({ ...current, localizationIndex: parseInputNumber(value) }))}
               />
             </label>
             <label>
               <span>Индекс распределения продаж</span>
-              <input
-                min="0"
+              <NumberInput
                 step="0.001"
-                type="number"
                 value={settings.salesDistributionIndex}
-                onChange={(event) => setSettings({ ...settings, salesDistributionIndex: Number(event.target.value) || 0 })}
+                onChange={(value) => setSettings((current) => ({ ...current, salesDistributionIndex: parseInputNumber(value) }))}
               />
             </label>
           </div>
@@ -409,11 +419,10 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
           <div className="settings-controls">
             <label>
               <span>Дней хранения</span>
-              <input
-                min="0"
-                type="number"
+              <NumberInput
+                step="1"
                 value={settings.storageDays}
-                onChange={(event) => setSettings({ ...settings, storageDays: Number(event.target.value) || 0 })}
+                onChange={(value) => setSettings((current) => ({ ...current, storageDays: parseInputNumber(value) }))}
               />
             </label>
             <label>
@@ -586,11 +595,6 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
             </tbody>
           </table>
         </div>
-        <datalist id="ozon-categories">
-          {ozonCategoryDatalistValues.map((category) => (
-            <option key={category} value={category} />
-          ))}
-        </datalist>
       </section>
 
       <section className="results" aria-label="Результаты">
@@ -1183,8 +1187,145 @@ function summarizePimMargin(result: SchemeResult, vatDisplayMode: CalculatorSett
   };
 }
 
-function NumberInput({ value, onChange }: { value: number; onChange: (value: string) => void }) {
-  return <input min="0" step="0.01" type="number" value={value || ""} onChange={(event) => onChange(event.target.value)} />;
+function DraftTextInput({
+  onCommit,
+  title,
+  value
+}: {
+  onCommit: (value: string) => void;
+  title?: string;
+  value: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+  const commitTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(value);
+    }
+  }, [isFocused, value]);
+
+  useEffect(() => () => clearCommitTimer(commitTimerRef), []);
+
+  const commitDraft = useCallback((nextValue: string) => {
+    clearCommitTimer(commitTimerRef);
+    onCommit(nextValue);
+  }, [onCommit]);
+
+  const scheduleCommit = useCallback((nextValue: string) => {
+    clearCommitTimer(commitTimerRef);
+    commitTimerRef.current = window.setTimeout(() => onCommit(nextValue), inputCommitDelayMs);
+  }, [onCommit]);
+
+  return (
+    <input
+      title={title}
+      value={draft}
+      onBlur={() => {
+        setIsFocused(false);
+        commitDraft(draft);
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+        scheduleCommit(nextValue);
+      }}
+      onFocus={() => setIsFocused(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitDraft(draft);
+        }
+        if (event.key === "Escape") {
+          clearCommitTimer(commitTimerRef);
+          setDraft(value);
+        }
+      }}
+    />
+  );
+}
+
+function NumberInput({
+  ariaLabel,
+  formatValue = formatPlainNumberInput,
+  min = "0",
+  onChange,
+  step = "0.01",
+  value
+}: {
+  ariaLabel?: string;
+  formatValue?: (value: number) => string;
+  min?: string;
+  onChange: (value: string) => void;
+  step?: string;
+  value: number;
+}) {
+  const formattedValue = formatValue(value);
+  const [draft, setDraft] = useState(formattedValue);
+  const [isFocused, setIsFocused] = useState(false);
+  const commitTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formattedValue);
+    }
+  }, [formattedValue, isFocused]);
+
+  useEffect(() => () => clearCommitTimer(commitTimerRef), []);
+
+  const commitDraft = useCallback((nextValue: string) => {
+    clearCommitTimer(commitTimerRef);
+    onChange(nextValue);
+  }, [onChange]);
+
+  const scheduleCommit = useCallback((nextValue: string) => {
+    clearCommitTimer(commitTimerRef);
+    commitTimerRef.current = window.setTimeout(() => onChange(nextValue), inputCommitDelayMs);
+  }, [onChange]);
+
+  return (
+    <input
+      aria-label={ariaLabel}
+      inputMode="decimal"
+      min={min}
+      step={step}
+      type="text"
+      value={draft}
+      onBlur={() => {
+        setIsFocused(false);
+        commitDraft(draft);
+        setDraft(formatValue(parseInputNumber(draft)));
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+        scheduleCommit(nextValue);
+      }}
+      onFocus={() => {
+        setIsFocused(true);
+        setDraft(formattedValue);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitDraft(draft);
+          setDraft(formatValue(parseInputNumber(draft)));
+        }
+        if (event.key === "Escape") {
+          clearCommitTimer(commitTimerRef);
+          setDraft(formattedValue);
+        }
+      }}
+    />
+  );
+}
+
+function clearCommitTimer(timerRef: MutableRefObject<number | null>) {
+  if (timerRef.current) {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
 }
 
 function lookupSuggestionResult(options: string[], query: string, maxOptions = autocompleteMaxOptions): { count: number; suggestions: string[] } {
@@ -1201,6 +1342,13 @@ function lookupSuggestionResult(options: string[], query: string, maxOptions = a
   }
 
   return { count, suggestions };
+}
+
+function estimateAutocompleteMenuHeight(suggestionCount: number, hasMoreSuggestions: boolean) {
+  if (suggestionCount === 0) return 40;
+  const optionsHeight = suggestionCount * 34;
+  const noteHeight = hasMoreSuggestions ? 34 : 0;
+  return Math.min(autocompleteMaxHeightPx, optionsHeight + noteHeight);
 }
 
 function LookupAutocompleteInput({
@@ -1221,7 +1369,11 @@ function LookupAutocompleteInput({
   const [query, setQuery] = useState(value);
   const [isOpen, setIsOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const isChoosingOptionRef = useRef(false);
+  const isMenuPointerDownRef = useRef(false);
   const normalizedValue = normalizeLookupValue(query);
   const { count: matchingCount, suggestions } = useMemo(
     () => lookupSuggestionResult(options, query, maxOptions),
@@ -1234,6 +1386,67 @@ function LookupAutocompleteInput({
       setQuery(value);
     }
   }, [isFocused, value]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updateMenuPosition = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      const rect = input.getBoundingClientRect();
+      const scrollContainer = input.closest(".sku-table-wrap");
+      const scrollContainerRect = scrollContainer?.getBoundingClientRect();
+      const hasHorizontalScrollbar =
+        scrollContainer instanceof HTMLElement && scrollContainer.scrollWidth > scrollContainer.clientWidth;
+      const horizontalScrollbarReserve =
+        scrollContainer instanceof HTMLElement && hasHorizontalScrollbar
+          ? Math.max(12, scrollContainer.offsetHeight - scrollContainer.clientHeight)
+          : 0;
+      const boundaryTop = Math.max(0, scrollContainerRect?.top ?? 0);
+      const boundaryBottom = Math.min(window.innerHeight, (scrollContainerRect?.bottom ?? window.innerHeight) - horizontalScrollbarReserve - autocompleteGapPx);
+      const estimatedMenuHeight = estimateAutocompleteMenuHeight(suggestions.length, hasMoreSuggestions);
+      const spaceBelow = Math.max(0, boundaryBottom - rect.bottom - autocompleteGapPx);
+      const spaceAbove = Math.max(0, rect.top - boundaryTop - autocompleteGapPx);
+      const openBelow = spaceBelow >= Math.min(estimatedMenuHeight, autocompleteMinHeightPx) || spaceBelow >= spaceAbove;
+      const availableSpace = openBelow ? spaceBelow : spaceAbove;
+      const maxHeight =
+        availableSpace > 0
+          ? Math.max(Math.min(autocompleteMinHeightPx, availableSpace), Math.min(autocompleteMaxHeightPx, estimatedMenuHeight, availableSpace))
+          : Math.min(autocompleteMaxHeightPx, estimatedMenuHeight);
+      setMenuPosition({
+        left: rect.left,
+        top: openBelow ? rect.bottom + autocompleteGapPx : rect.top - autocompleteGapPx - maxHeight,
+        width: rect.width,
+        maxHeight
+      });
+    };
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [hasMoreSuggestions, isOpen, suggestions.length]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (inputRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setIsFocused(false);
+      commitValue();
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
+  }, [isOpen, query]);
 
   function chooseOption(option: string) {
     setQuery(option);
@@ -1254,14 +1467,16 @@ function LookupAutocompleteInput({
   return (
     <div className="combo lookup-combo">
       <input
+        ref={inputRef}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         role="combobox"
         title={title}
         value={query}
         onBlur={() => {
-          if (isChoosingOptionRef.current) {
+          if (isChoosingOptionRef.current || isMenuPointerDownRef.current) {
             isChoosingOptionRef.current = false;
+            isMenuPointerDownRef.current = false;
             return;
           }
           setIsFocused(false);
@@ -1286,8 +1501,25 @@ function LookupAutocompleteInput({
           }
         }}
       />
-      {isOpen ? (
-        <div className="combo-menu lookup-menu" role="listbox">
+      {isOpen && menuPosition
+        ? createPortal(
+        <div
+          ref={menuRef}
+          className="combo-menu lookup-menu lookup-menu-portal"
+          role="listbox"
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            maxHeight: menuPosition.maxHeight,
+            width: menuPosition.width
+          }}
+          onMouseDownCapture={() => {
+            isMenuPointerDownRef.current = true;
+            window.setTimeout(() => {
+              isMenuPointerDownRef.current = false;
+            }, 0);
+          }}
+        >
           {suggestions.length ? (
             <>
               {suggestions.map((option) => (
@@ -1313,8 +1545,10 @@ function LookupAutocompleteInput({
           ) : (
             <div className="combo-empty">{emptyLabel}</div>
           )}
-        </div>
-      ) : null}
+        </div>,
+        document.body
+          )
+        : null}
     </div>
   );
 }
@@ -1338,10 +1572,10 @@ const SkuTableRow = memo(function SkuTableRow({
   return (
     <tr>
       <td>
-        <input title={sku.name} value={sku.name} onChange={(event) => onSkuChange(sku.id, { name: event.target.value })} />
+        <DraftTextInput title={sku.name} value={sku.name} onCommit={(value) => onSkuChange(sku.id, { name: value })} />
       </td>
       <td>
-        <NumberInput value={sku.price} onChange={(value) => onSkuNumberChange(sku.id, "price", value)} />
+        <NumberInput ariaLabel={`${sku.name}: цена`} value={sku.price} onChange={(value) => onSkuNumberChange(sku.id, "price", value)} />
       </td>
       <td>
         <LookupAutocompleteInput
@@ -1375,12 +1609,13 @@ const SkuTableRow = memo(function SkuTableRow({
         />
       </td>
       <td>
-        <input
-          list="ozon-categories"
+        <LookupAutocompleteInput
+          emptyLabel="Категория Ozon не найдена"
+          options={lookups.ozonCategories}
           title={sku.ozonCategory}
           value={sku.ozonCategory}
-          onChange={(event) => {
-            const ozonCategory = canonicalLookupValue(event.target.value, lookups.ozonCategories);
+          onCommit={(value) => {
+            const ozonCategory = canonicalLookupValue(value, lookups.ozonCategories);
             const categoryTypes = productTypesForOzonCategory(ozonCategory, lookups);
             onSkuChange(sku.id, {
               ozonCategory,
@@ -1405,19 +1640,19 @@ const SkuTableRow = memo(function SkuTableRow({
         />
       </td>
       <td>
-        <NumberInput value={sku.weightKg} onChange={(value) => onSkuNumberChange(sku.id, "weightKg", value)} />
+        <NumberInput ariaLabel={`${sku.name}: вес`} value={sku.weightKg} onChange={(value) => onSkuNumberChange(sku.id, "weightKg", value)} />
       </td>
       <td>
-        <NumberInput value={sku.lengthCm} onChange={(value) => onSkuNumberChange(sku.id, "lengthCm", value)} />
+        <NumberInput ariaLabel={`${sku.name}: длина`} value={sku.lengthCm} onChange={(value) => onSkuNumberChange(sku.id, "lengthCm", value)} />
       </td>
       <td>
-        <NumberInput value={sku.widthCm} onChange={(value) => onSkuNumberChange(sku.id, "widthCm", value)} />
+        <NumberInput ariaLabel={`${sku.name}: ширина`} value={sku.widthCm} onChange={(value) => onSkuNumberChange(sku.id, "widthCm", value)} />
       </td>
       <td>
-        <NumberInput value={sku.heightCm} onChange={(value) => onSkuNumberChange(sku.id, "heightCm", value)} />
+        <NumberInput ariaLabel={`${sku.name}: высота`} value={sku.heightCm} onChange={(value) => onSkuNumberChange(sku.id, "heightCm", value)} />
       </td>
       <td>
-        <NumberInput value={sku.itemsPerPallet} onChange={(value) => onSkuNumberChange(sku.id, "itemsPerPallet", value)} />
+        <NumberInput ariaLabel={`${sku.name}: количество на паллете`} step="1" value={sku.itemsPerPallet} onChange={(value) => onSkuNumberChange(sku.id, "itemsPerPallet", value)} />
       </td>
       <td>
         <button type="button" className="icon-button" title="Удалить SKU" onClick={() => onRemove(sku.id)}>
@@ -1729,17 +1964,8 @@ function MarkupPairInput({
 }) {
   const rubValue = roundRub(baseRub * (percent / 100));
   const formattedRubValue = formatMoneyInput(rubValue);
-  const [rubDraft, setRubDraft] = useState(formattedRubValue);
-  const [isRubFocused, setIsRubFocused] = useState(false);
-
-  useEffect(() => {
-    if (!isRubFocused) {
-      setRubDraft(formattedRubValue);
-    }
-  }, [formattedRubValue, isRubFocused]);
 
   const setRub = (value: string) => {
-    setRubDraft(value);
     const rub = parseInputNumber(value);
     onPercentChange(baseRub > 0 ? roundPercentInput((rub / baseRub) * 100) : 0);
   };
@@ -1749,31 +1975,20 @@ function MarkupPairInput({
       <span>{label}</span>
       <strong>{baseLabel}</strong>
       <label>
-        <input
+        <NumberInput
           aria-label={`${label}: процент наценки`}
-          min="0"
           step="1"
-          type="number"
           value={percent}
-          onChange={(event) => onPercentChange(parseInputNumber(event.target.value))}
+          onChange={(value) => onPercentChange(parseInputNumber(value))}
         />
       </label>
       <label>
-        <input
+        <NumberInput
           aria-label={`${label}: наценка, ${rubLabel}`}
-          min="0"
+          formatValue={formatMoneyInput}
           step="0.01"
-          type="number"
-          value={isRubFocused ? rubDraft : formattedRubValue}
-          onBlur={() => {
-            setIsRubFocused(false);
-            setRubDraft(formatMoneyInput(roundRub(baseRub * (percent / 100))));
-          }}
-          onChange={(event) => setRub(event.target.value)}
-          onFocus={() => {
-            setIsRubFocused(true);
-            setRubDraft(formattedRubValue);
-          }}
+          value={rubValue}
+          onChange={setRub}
         />
       </label>
     </div>
@@ -2105,17 +2320,6 @@ function hasLookupValue(options: string[], value: string): boolean {
   return options.some((option) => normalizeLookupValue(option) === normalized);
 }
 
-function lookupDatalistValues(options: string[]): string[] {
-  return Array.from(
-    new Set(
-      options.flatMap((option) => {
-        const lowerOption = normalizeLookupValue(option);
-        return lowerOption === option ? [option] : [option, lowerOption];
-      })
-    )
-  );
-}
-
 function normalizeLookupValue(value: string): string {
   return value.trim().replace(/\s+/g, " ").replace(/ё/g, "е").replace(/Ё/g, "Е").toLocaleLowerCase("ru-RU");
 }
@@ -2262,6 +2466,10 @@ function formatNumber(value: number) {
 
 function formatMoneyInput(value: number) {
   return roundRub(value).toFixed(2);
+}
+
+function formatPlainNumberInput(value: number) {
+  return value ? String(roundPercentInput(value)) : "";
 }
 
 function formatPercentInput(value: number) {
