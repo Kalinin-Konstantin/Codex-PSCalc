@@ -25,6 +25,19 @@ const SCHEMES: Scheme[] = ["fbo", "fbs", "dbs"];
 const VAT_RATE = 0.22;
 const WB_FAST_HANDOVER_DISCOUNT = 0.015;
 const WAREHOUSE_OPERATIONS_DISPLAY_KEY = "warehouseOperations";
+const WB_FBS_DISTRICT_BY_DESTINATION_CITY: Record<string, string> = {
+  "Москва": "Центральный федеральный округ",
+  "Краснодар": "Южный федеральный округ",
+  "Казань": "Приволжский федеральный округ",
+  "Красноярск": "Сибирский федеральный округ",
+  "Самара": "Приволжский федеральный округ",
+  "Нижний Новгород": "Приволжский федеральный округ",
+  "Санкт-Петербург": "Северо-Западный федеральный округ",
+  "Екатеринбург": "Уральский федеральный округ",
+  "Новосибирск": "Сибирский федеральный округ",
+  "Уссурийск": "Дальневосточный федеральный округ",
+  "Хабаровск": "Дальневосточный федеральный округ"
+};
 const DISPLAY_BREAKDOWN_ORDER: Record<Marketplace, Record<Scheme, string[]>> = {
   wildberries: {
     fbo: ["firstMile", "commission", "wbAcceptance", "wbStorage", "wbLastMile"],
@@ -1054,14 +1067,14 @@ function wildberriesMarketplaceCosts(
 
   if (scheme === "fbs") {
     const isSgt = classifySkuDimensions(sku).wildberries === "sgt";
-    const marketplaceWarehouse = findWbFbsMarketplaceWarehouse(warehouse, wbLogistics, isSgt);
+    const marketplaceWarehouse = findWbFbsMarketplaceWarehouse(settings.firstMileCity, warehouse, wbLogistics, isSgt);
     const delivery = wbMarketplaceDeliveryCost(metrics.volumeLiters, marketplaceWarehouse?.box, wbLogistics);
-    const isSgtRowApplied = isSgt && marketplaceWarehouse?.name === wbFbsMarketplaceWarehouseName(warehouse, true);
+    const isSgtRowApplied = isSgt && marketplaceWarehouse?.name === wbFbsMarketplaceWarehouseName(settings.firstMileCity, warehouse, true);
     if (delivery == null) {
-      warnings.push(`Не найден тариф логистики WB FBS для федерального округа склада "${settings.wbWarehouse}"`);
+      warnings.push(`Не найден тариф логистики WB FBS для города "${settings.firstMileCity}"`);
     }
     if (isSgt && !isSgtRowApplied) {
-      warnings.push(`Предупреждение: WB СГТ — не найдена СГТ-строка тарифа для федерального округа склада "${settings.wbWarehouse}", применена обычная FBS-строка.`);
+      warnings.push(`Предупреждение: WB СГТ — не найдена СГТ-строка тарифа для города "${settings.firstMileCity}", применена обычная FBS-строка.`);
     }
     return [
       {
@@ -1079,13 +1092,20 @@ function wildberriesMarketplaceCosts(
 }
 
 function findWbFbsMarketplaceWarehouse(
+  destinationCity: string,
   warehouse: LogisticsAssumptions["wildberriesLogistics"]["warehouses"][number] | undefined,
   logistics: LogisticsAssumptions["wildberriesLogistics"],
   isSgt = false
 ): LogisticsAssumptions["wildberriesLogistics"]["warehouses"][number] | undefined {
+  const cityDistrict = WB_FBS_DISTRICT_BY_DESTINATION_CITY[destinationCity];
+  const cityMarketplaceWarehouse =
+    (isSgt && cityDistrict ? logistics.warehouses.find((item) => item.name === wbFbsMarketplaceWarehouseNameByDistrict(cityDistrict, true)) : undefined) ??
+    (cityDistrict ? logistics.warehouses.find((item) => item.name === wbFbsMarketplaceWarehouseNameByDistrict(cityDistrict, false)) : undefined);
+  if (cityMarketplaceWarehouse) return cityMarketplaceWarehouse;
+
   if (!warehouse?.geoName) return warehouse;
-  const sgtWarehouseName = wbFbsMarketplaceWarehouseName(warehouse, true);
-  const defaultWarehouseName = wbFbsMarketplaceWarehouseName(warehouse, false);
+  const sgtWarehouseName = wbFbsMarketplaceWarehouseNameByDistrict(warehouse.geoName, true);
+  const defaultWarehouseName = wbFbsMarketplaceWarehouseNameByDistrict(warehouse.geoName, false);
   return (
     (isSgt ? logistics.warehouses.find((item) => item.name === sgtWarehouseName) : undefined) ??
     logistics.warehouses.find((item) => item.name === defaultWarehouseName) ??
@@ -1094,11 +1114,16 @@ function findWbFbsMarketplaceWarehouse(
 }
 
 function wbFbsMarketplaceWarehouseName(
+  destinationCity: string,
   warehouse: LogisticsAssumptions["wildberriesLogistics"]["warehouses"][number] | undefined,
   isSgt: boolean
 ): string | null {
-  if (!warehouse?.geoName) return null;
-  return `Маркетплейс: ${warehouse.geoName}${isSgt ? " СГТ" : ""}`;
+  const district = WB_FBS_DISTRICT_BY_DESTINATION_CITY[destinationCity] ?? warehouse?.geoName;
+  return district ? wbFbsMarketplaceWarehouseNameByDistrict(district, isSgt) : null;
+}
+
+function wbFbsMarketplaceWarehouseNameByDistrict(district: string, isSgt: boolean): string {
+  return `Маркетплейс: ${district}${isSgt ? " СГТ" : ""}`;
 }
 
 function wbDeliveryCost(

@@ -1236,6 +1236,23 @@ test("Wildberries FBS logistics uses marketplace row for selected warehouse fede
   assert.equal(fbsPart("wbFbsLastMile"), 837.46);
 });
 
+test("Wildberries FBS logistics uses destination federal district when no WB FBO warehouse is selected", () => {
+  const result = calculateAllSchemes(skus[0], { ...settings, firstMileCity: "Красноярск", wbWarehouse: "" }, tariffs);
+  const logisticsPart = result.wildberries.fbs.breakdown.find((item) => item.key === "wbFbsLastMile");
+  const marketplace = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name === "Маркетплейс: Сибирский федеральный округ");
+  const liters = calculateSkuMetrics(skus[0]).volumeLiters;
+  const expectedWithVat = money(
+    (marketplace?.box?.marketplaceDeliveryBaseRub ?? 0) +
+      Math.max(0, liters - 1) * (marketplace?.box?.marketplaceDeliveryAdditionalLiterRub ?? 0)
+  );
+
+  assert.equal(marketplace?.box?.marketplaceDeliveryCoefPercent, 200);
+  assert.equal(logisticsPart?.amountRub, money(expectedWithVat / 1.22));
+  assert.match(logisticsPart?.calculationNote ?? "", /Маркетплейс: Сибирский федеральный округ/);
+  assert.ok(logisticsPart);
+  assert.ok(!result.wildberries.fbs.warnings.some((warning) => warning.includes("Не найден тариф логистики WB FBS")));
+});
+
 test("Wildberries FBS SGT logistics uses marketplace SGT row for selected warehouse federal district", () => {
   const sgtSku: SkuInput = {
     ...skus[0],
