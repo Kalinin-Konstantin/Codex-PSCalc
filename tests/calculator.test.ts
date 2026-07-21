@@ -546,8 +546,9 @@ test("client Excel report contains summary, formulas and no internal margin fiel
   assert.match(summaryText, /Лучший Ozon/);
   assert.equal(highlightedBestTariffs.length, 2);
   assert.match(summaryText, /='Детализация'!E\d+/);
-  assert.match(detailText, /Первая миля \(справочно\)/);
-  assert.match(detailText, /=0/);
+  assert.match(detailText, /WB\nFBO\nПервая миля\n/);
+  assert.doesNotMatch(detailText, /Первая миля \(справочно\)/);
+  assert.match(detailText, /=IFERROR\(E\d+\/\d+(?:\.\d+)?,0\)/);
   assert.match(detailText, /=SUM\(E\d+(,E\d+)+\)/);
   assert.match(detailText, /Операции PIM\.Seller/);
   assert.match(tariffText, /Объём 41,94 л: 1-й литр = 17,39 ₽; 2-190 л: 40,94 л × 2,83 ₽\/л = 115,87 ₽/);
@@ -777,9 +778,11 @@ test("PIM commercial markups apply before VAT and stay hidden in client mode", (
   const part = (result: typeof fbs, key: string) => result.breakdown.find((item) => item.key === key);
 
   assert.equal(part(fbs, "firstMile")?.amountRub, 366.56);
-  assert.equal(part(fbo, "firstMile")?.amountRub, 333.23);
-  assert.equal(part(fbo, "firstMile")?.isReferenceOnly, true);
-  assert.equal(part(fbo, "firstMile")?.pimProfitCenter, undefined);
+  assert.equal(part(fbo, "firstMile")?.amountRub, 366.56);
+  assert.equal(part(fbo, "firstMile")?.isReferenceOnly, undefined);
+  assert.equal(part(fbo, "firstMile")?.pimProfitCenter, "firstMile");
+  assert.equal(part(fbo, "firstMile")?.pimProfitWithoutVatRub, 33.32);
+  assert.equal(part(fbo, "firstMile")?.pimProfitWithVatRub, 40.65);
   assert.equal(
     fbo.totalRub,
     Math.round(fbo.breakdown.filter((item) => !item.isReferenceOnly).reduce((sum, item) => sum + item.amountRub, 0) * 100) / 100
@@ -1464,10 +1467,10 @@ test("scheme totals equal the rounded sum of their breakdown items", () => {
 test("display breakdown follows client article order without changing totals", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const expectedOrders = new Map([
-    [result.wildberries.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 35.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
+    [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 35.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
     [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 40%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
     [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 45%", "Операции PIM.Seller", "Последняя миля"]],
-    [result.ozon.fbo, ["Первая миля (справочно)", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Последняя миля"]]
   ]);

@@ -15,7 +15,7 @@ import {
 } from "../lib/calculator.ts";
 import { buildClientDefaultSettings, ozonClusterForCityWithLookups, type CalculatorLookupData } from "../lib/calculator-lookups";
 import { createClientReportBlob } from "../lib/client-report";
-import { createSkuImportTemplateBlob, importSkusFromXlsxFile } from "../lib/sku-import";
+import { importSkusFromXlsxFile } from "../lib/sku-import";
 import { createSellerAction, deleteCalculationAction, deleteSellerAction, saveCalculationAction } from "../app/calculations/actions";
 import { hydrateCalculatorSettings, type CalculatorWorkspace } from "../lib/saved-calculations";
 import type { CalculationResult, CalculatorSettings, PimProfitCenter, SchemeResult, SkuInput, TariffData, WarehouseOperationGroup } from "../lib/types";
@@ -233,7 +233,7 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
   }
 
   function downloadSkuTemplate() {
-    triggerXlsxDownload(createSkuImportTemplateBlob(), "Шаблон загрузки SKU PIM.Seller.xlsx");
+    triggerFileDownload("/sku-import-template.xlsx", "Шаблон загрузки SKU PIM.Seller.xlsx");
   }
 
   function downloadClientReport() {
@@ -2426,6 +2426,16 @@ function triggerXlsxDownload(blob: Blob, filename: string) {
     link.remove();
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+function triggerFileDownload(href: string, filename: string) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 function formatRub(value: number) {

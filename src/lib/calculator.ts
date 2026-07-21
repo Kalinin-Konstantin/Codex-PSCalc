@@ -259,7 +259,6 @@ function calculateMarketplaceScheme(
       amountRub: firstMile ?? 0,
       source: "assumption",
       vatMode: "without_vat",
-      isReferenceOnly: scheme === "fbo",
       calculationNote: firstMileNote(settings.originCity, settings.firstMileCity, sku.itemsPerPallet, tariffs.logistics)
     },
     {
