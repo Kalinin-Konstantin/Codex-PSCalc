@@ -133,8 +133,11 @@ export type WbCommissionEntry = {
 };
 
 export type OzonCommissionEntry = {
+  mainCategory?: string;
   category: string;
   productType: string;
+  commissionSource?: string;
+  effectiveFrom?: string;
   commissionBands: Record<Scheme, Record<string, number>>;
 };
 
@@ -268,6 +271,7 @@ export type LogisticsAssumptions = {
     pickupPointRub: number;
     fbsAcceptanceRub: number;
     tariffSource?: string;
+    tariffEffectiveFrom?: string;
     nonlocalMarkupSource?: string;
     storageFreeDaysSource?: string;
     storageRates?: {

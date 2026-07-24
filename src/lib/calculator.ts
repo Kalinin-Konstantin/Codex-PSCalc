@@ -73,6 +73,8 @@ type CommissionCost = {
   rate: number;
   originalRate: number;
   discount: CommissionDiscount | null;
+  commissionSource?: string;
+  effectiveFrom?: string;
 };
 type CostParts = { baseRub: number; additionalRub: number; totalRub: number };
 type LastMileCostParts = CostParts & {
@@ -563,14 +565,27 @@ function commissionCost(
   settings: CalculatorSettings,
   tariffs: TariffData
 ): CommissionCost | null {
+  const ozonEntry = marketplace === "ozon" ? findOzonCommissionEntry(sku, tariffs.ozonCommissions) : null;
   const rate =
     marketplace === "wildberries"
       ? findWbCommission(sku, tariffs.wildberriesCommissions)?.[scheme]
-      : findOzonCommission(sku, scheme, tariffs.ozonCommissions);
+      : ozonEntry == null
+        ? null
+        : ozonEntry.commissionBands[scheme]?.[priceBandKey(sku.price, scheme)] ??
+          ozonEntry.commissionBands[scheme]?.over10000 ??
+          Object.values(ozonEntry.commissionBands[scheme] ?? {})[0] ??
+          null;
   if (rate == null) return null;
   const discount = commissionDiscount(marketplace, scheme, settings, sku);
   const effectiveRate = applyCommissionDiscount(rate, discount);
-  return { amountRub: sku.price * effectiveRate, rate: effectiveRate, originalRate: rate, discount };
+  return {
+    amountRub: sku.price * effectiveRate,
+    rate: effectiveRate,
+    originalRate: rate,
+    discount,
+    commissionSource: ozonEntry?.commissionSource,
+    effectiveFrom: ozonEntry?.effectiveFrom
+  };
 }
 
 function commissionDiscount(marketplace: Marketplace, scheme: Scheme, settings: CalculatorSettings, sku: SkuInput): CommissionDiscount | null {
@@ -622,9 +637,25 @@ function formatCommissionRate(commission: CommissionCost): string {
 }
 
 function commissionCalculationNote(commission: CommissionCost): string {
-  const base = `Цена товара × ставка комиссии ${formatCommissionRate(commission)}.`;
-  if (!commission.discount) return base;
-  return `${base} Снижение ${formatRate(commission.discount.value)} применяется за Быструю сдачу.`;
+  return `Цена товара х ставка комиссии ${formatRate(commission.rate)}.${futureCommissionTariffNote(commission)}`;
+}
+
+function futureCommissionTariffNote(commission: CommissionCost): string {
+  if (!commission.effectiveFrom || todayIsoDate() >= commission.effectiveFrom) return "";
+  return ` Данные комиссии вступят в силу с ${formatIsoDate(commission.effectiveFrom)}.`;
+}
+
+function todayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatIsoDate(value: string): string {
+  const [year, month, day] = value.split("-");
+  return [day, month, year].filter(Boolean).join(".");
 }
 
 export function findWbCommission(sku: Pick<SkuInput, "wbSubject" | "wbCategory">, entries: WbCommissionEntry[]): Record<Scheme, number> | null {
@@ -1435,7 +1466,7 @@ function ozonMarketplaceCosts(
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics)
       },
       {
         key: "ozonFboNonlocalMarkup",
@@ -1486,7 +1517,7 @@ function ozonMarketplaceCosts(
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics)
       },
       {
         key: "ozonPickupPoint",
@@ -1531,10 +1562,17 @@ function ozonLogisticsNote(
   volumeLiters: number,
   priceRub: number,
   originCluster: string,
-  deliveryCluster: string
+  deliveryCluster: string,
+  logistics: LogisticsAssumptions
 ): string {
   if (!tariffRow) return `Тариф Ozon для направления ${originCluster} → ${deliveryCluster}, объёма ${formatDecimal(volumeLiters)} л и цены ${formatDecimal(priceRub)} ₽ не найден.`;
-  return `${tariffRow.sourceLabel}: объём ${formatDecimal(volumeLiters)} л попадает в диапазон "${tariffRow.volumeLabel}", ${tariffRow.priceBandLabel}; тариф = ${formatDecimal(tariffRow.rub)} ₽ с НДС.`;
+  return `Тариф логистики Ozon ${formatDecimal(tariffRow.rub)} ₽.${futureOzonLogisticsTariffNote(logistics)}`;
+}
+
+function futureOzonLogisticsTariffNote(logistics: LogisticsAssumptions): string {
+  const effectiveFrom = logistics.ozonLogistics.tariffEffectiveFrom;
+  if (!effectiveFrom || todayIsoDate() >= effectiveFrom) return "";
+  return ` Данные логистики вступят в силу с ${formatIsoDate(effectiveFrom)}.`;
 }
 
 function ozonFboStorageCost(

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { MutableRefObject, ReactNode } from "react";
+import type { CSSProperties, MutableRefObject, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   breakdownItemsForDisplay,
@@ -2384,20 +2384,44 @@ const ResultCell = memo(function ResultCell({ result, isBest }: { result: Scheme
 
 function BreakdownHelp({ item }: { item: SchemeResult["breakdown"][number] }) {
   const note = item.calculationNote ?? "Расчёт по выбранным параметрам SKU и тарифному справочнику.";
+  const helpRef = useRef<HTMLSpanElement | null>(null);
+  const [position, setPosition] = useState({ left: 16, top: 16, placement: "above" as "above" | "below" });
+  const updatePosition = useCallback(() => {
+    const trigger = helpRef.current?.querySelector(".breakdown-help-trigger");
+    if (!(trigger instanceof HTMLElement)) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(320, Math.max(220, window.innerWidth - 32));
+    const left = Math.min(Math.max(16, rect.right - width + 8), window.innerWidth - width - 16);
+    const placement = rect.top > 180 ? "above" : "below";
+    const top = placement === "above" ? rect.top - 8 : rect.bottom + 8;
+    setPosition({ left, top, placement });
+  }, []);
+  const style = {
+    "--breakdown-help-left": `${position.left}px`,
+    "--breakdown-help-top": `${position.top}px`,
+    "--breakdown-help-translate-y": position.placement === "above" ? "-100%" : "0"
+  } as CSSProperties;
+  const showTotal = !isCompactBreakdownHelp(item);
   return (
-    <span className="help breakdown-help">
+    <span className="help breakdown-help" data-placement={position.placement} onFocus={updatePosition} onMouseEnter={updatePosition} ref={helpRef} style={style}>
       <button type="button" className="help-trigger breakdown-help-trigger" aria-label={`Как считается ${item.label.toLowerCase()}?`}>
         ?
       </button>
       <span className="help-card breakdown-help-card" role="tooltip">
         <strong>{item.label}</strong>
         <span className="help-text">{note}</span>
-        <span className="help-text help-total">
-          {item.isReferenceOnly ? "Справочно" : "Итого"}: {formatRub(item.amountRub)} {item.vatNote}.
-        </span>
+        {showTotal ? (
+          <span className="help-text help-total">
+            {item.isReferenceOnly ? "Справочно" : "Итого"}: {formatRub(item.amountRub)} {item.vatNote}.
+          </span>
+        ) : null}
       </span>
     </span>
   );
+}
+
+function isCompactBreakdownHelp(item: SchemeResult["breakdown"][number]): boolean {
+  return item.key === "commission" || item.key === "ozonFboLogisticsTariff" || item.key === "ozonFbsLogistics";
 }
 
 function findBestResultsByMarketplace(result: CalculationResult) {

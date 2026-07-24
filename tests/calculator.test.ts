@@ -43,6 +43,7 @@ const tariffs: TariffData = {
   middleMile: readJson("../src/data/generated/middle-mile-tariffs.json"),
   logistics: readJson("../src/data/generated/logistics-assumptions.json")
 };
+const cloneTariffs = (): TariffData => JSON.parse(JSON.stringify(tariffs));
 
 const settings: CalculatorSettings = {
   originCity: "Воронеж",
@@ -362,20 +363,27 @@ test("wildberries category without subject does not fall back to the first categ
 });
 
 test("ozon commission columns and price bands are mapped to scheme rates with RFBS as DBS", () => {
-  assert.equal(ozonSource.columnMapping.fboColumns, "C:H");
-  assert.equal(ozonSource.columnMapping.fbsColumns, "O:T");
-  assert.equal(ozonSource.columnMapping.dbsUsesRfbsColumns, "U:X");
+  assert.equal(ozonSource.source, "Таблица_категорий_для_расчёта_вознаграждения_28082026-2_1784189410.xlsx");
+  assert.equal(ozonSource.effectiveFrom, "2026-08-28");
+  assert.equal(ozonSource.columnMapping.mainCategory, "Основная категория");
+  assert.equal(ozonSource.columnMapping.fboColumns, "D:F");
+  assert.equal(ozonSource.columnMapping.fbsColumns, "J:L");
+  assert.equal(ozonSource.columnMapping.dbsUsesRfbsColumns, "M:M");
+  assert.equal(ozonSource.columnMapping.rfbsMotorcycleOver500kIgnored, "N:N");
 
   const sample = tariffs.ozonCommissions.find((entry) => entry.productType === "3D-очки");
   assert.ok(sample);
-  assert.equal(sample.commissionBands.fbo.to100, 0.14);
-  assert.equal(sample.commissionBands.fbo.over10000, 0.44);
-  assert.equal(sample.commissionBands.fbs["300to1500"], 0.49);
+  assert.equal(sample.mainCategory, "Электроника");
+  assert.equal(sample.effectiveFrom, "2026-08-28");
+  assert.equal(sample.commissionSource, "Таблица_категорий_для_расчёта_вознаграждения_28082026-2_1784189410.xlsx");
+  assert.equal(sample.commissionBands.fbo.to100, 0.2);
+  assert.equal(sample.commissionBands.fbo.over10000, 0.5);
+  assert.equal(sample.commissionBands.fbs["300to1500"], 0.5);
   assert.equal(sample.commissionBands.dbs["1500to5000"], 0.5);
 
   assert.equal(
     findOzonCommission({ price: 99, ozonProductType: "3D-очки", ozonCategory: "VR-устройства и аксессуары" }, "fbo", tariffs.ozonCommissions),
-    0.14
+    0.2
   );
   assert.equal(
     findOzonCommission({ price: 5000, ozonProductType: "3D-очки", ozonCategory: "VR-устройства и аксессуары" }, "fbs", tariffs.ozonCommissions),
@@ -400,15 +408,15 @@ test("ozon mixer commission uses selected product type category and SKU price ba
       .filter((type) => type.includes("Миксер")),
     ["Миксер кухонный"]
   );
-  assert.equal(findOzonCommission({ ...mixer, price: 4000 }, "fbo", tariffs.ozonCommissions), 0.38);
+  assert.equal(findOzonCommission({ ...mixer, price: 4000 }, "fbo", tariffs.ozonCommissions), 0.54);
   assert.equal(
     findOzonCommission({ ozonCategory: "миксеры, блендеры, измельчители", ozonProductType: "миксер кухонный", price: 4000 }, "fbo", tariffs.ozonCommissions),
-    0.38
+    0.54
   );
-  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbo", tariffs.ozonCommissions), 0.41);
-  assert.equal(findOzonCommission({ ...mixer, price: 12000 }, "fbo", tariffs.ozonCommissions), 0.4);
-  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbs", tariffs.ozonCommissions), 0.47);
-  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "dbs", tariffs.ozonCommissions), 0.47);
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbo", tariffs.ozonCommissions), 0.54);
+  assert.equal(findOzonCommission({ ...mixer, price: 12000 }, "fbo", tariffs.ozonCommissions), 0.54);
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "fbs", tariffs.ozonCommissions), 0.54);
+  assert.equal(findOzonCommission({ ...mixer, price: 9000 }, "dbs", tariffs.ozonCommissions), 0.54);
 });
 
 test("ozon category without product type does not fall back to a category commission", () => {
@@ -569,10 +577,10 @@ test("ozon commission lookup avoids charity duplicates for regular furniture SKU
   const tableFbsCommission = table.ozon.fbs.breakdown.find((item) => item.key === "commission");
   const tableDbsCommission = table.ozon.dbs.breakdown.find((item) => item.key === "commission");
 
-  assert.equal(cabinetFbsCommission?.label, "Комиссия маркетплейса 48%");
-  assert.equal(cabinetDbsCommission?.label, "Комиссия маркетплейса 48%");
-  assert.equal(tableFbsCommission?.label, "Комиссия маркетплейса 41%");
-  assert.equal(tableDbsCommission?.label, "Комиссия маркетплейса 41%");
+  assert.equal(cabinetFbsCommission?.label, "Комиссия маркетплейса 54%");
+  assert.equal(cabinetDbsCommission?.label, "Комиссия маркетплейса 54%");
+  assert.equal(tableFbsCommission?.label, "Комиссия маркетплейса 54%");
+  assert.equal(tableDbsCommission?.label, "Комиссия маркетплейса 54%");
 });
 
 test("missing marketplace commission creates an incomplete scheme instead of a silent fallback", () => {
@@ -1109,18 +1117,30 @@ test("fast handover discounts apply only to FBS with marketplace-specific rules"
   assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 35.5%");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.label, "Комиссия маркетплейса 38.5% (40%-1.5%)");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.amountRub, 1278.07);
-  assert.match(part(withDiscount.wildberries.fbs, "commission")?.calculationNote ?? "", /Снижение 1\.5% применяется за Быструю сдачу/);
+  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.calculationNote, "Цена товара х ставка комиссии 38.5%.");
   assert.equal(part(withDiscount.wildberries.dbs, "commission")?.label, "Комиссия маркетплейса 45%");
   assert.equal(part(withDiscount.wildberries.dbs, "fastHandoverDiscount"), undefined);
 
-  assert.equal(part(withDiscount.ozon.fbo, "commission")?.label, "Комиссия маркетплейса 44%");
-  assert.equal(part(withDiscount.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 45% (48%-3%)");
-  assert.equal(part(withDiscount.ozon.fbs, "commission")?.amountRub, 1493.85);
-  assert.match(part(withDiscount.ozon.fbs, "commission")?.calculationNote ?? "", /Снижение 3% применяется за Быструю сдачу/);
-  assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 46% (48%-2%)");
-  assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.amountRub, 1527.05);
-  assert.equal(part(withDiscount.ozon.dbs, "commission")?.label, "Комиссия маркетплейса 48%");
+  assert.equal(part(withDiscount.ozon.fbo, "commission")?.label, "Комиссия маркетплейса 54%");
+  assert.equal(part(withDiscount.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 51% (54%-3%)");
+  assert.equal(part(withDiscount.ozon.fbs, "commission")?.amountRub, 1693.03);
+  assert.equal(part(withDiscount.ozon.fbs, "commission")?.calculationNote, "Цена товара х ставка комиссии 51%. Данные комиссии вступят в силу с 28.08.2026.");
+  assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 52% (54%-2%)");
+  assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.amountRub, 1726.23);
+  assert.equal(part(withDiscount.ozon.dbs, "commission")?.label, "Комиссия маркетплейса 54%");
   assert.equal(part(withDiscount.ozon.dbs, "fastHandoverDiscount"), undefined);
+});
+
+test("ozon future commission tariff note disappears after effective date", () => {
+  const futureTariffs = cloneTariffs();
+  futureTariffs.ozonCommissions = futureTariffs.ozonCommissions.map((entry) => ({ ...entry, effectiveFrom: "9999-12-31" }));
+  const futureCommission = calculateAllSchemes(skus[0], settings, futureTariffs).ozon.fbo.breakdown.find((item) => item.key === "commission");
+  assert.match(futureCommission?.calculationNote ?? "", /Данные комиссии вступят в силу с 31\.12\.9999/);
+
+  const activeTariffs = cloneTariffs();
+  activeTariffs.ozonCommissions = activeTariffs.ozonCommissions.map((entry) => ({ ...entry, effectiveFrom: "2000-01-01" }));
+  const activeCommission = calculateAllSchemes(skus[0], settings, activeTariffs).ozon.fbo.breakdown.find((item) => item.key === "commission");
+  assert.doesNotMatch(activeCommission?.calculationNote ?? "", /Данные комиссии вступят в силу/);
 });
 
 test("dimension warnings are non-blocking and WB SGT does not receive fast handover discount", () => {
@@ -1191,8 +1211,8 @@ test("Ozon KGT FBO/FBS delivery uses the same tariff matrix as standard goods", 
   assert.ok(result.ozon.dbs.isComplete);
   assert.deepEqual(result.ozon.fbo.warnings.filter((warning) => warning.includes("Ozon КГТ")), []);
   assert.deepEqual(result.ozon.fbs.warnings.filter((warning) => warning.includes("Ozon КГТ")), []);
-  assert.equal(result.ozon.fbo.breakdown.find((item) => item.key === "ozonFboLogisticsTariff")?.amountRub, 72.13);
-  assert.equal(result.ozon.fbs.breakdown.find((item) => item.key === "ozonFbsLogistics")?.amountRub, 72.13);
+  assert.equal(result.ozon.fbo.breakdown.find((item) => item.key === "ozonFboLogisticsTariff")?.amountRub, 77.87);
+  assert.equal(result.ozon.fbs.breakdown.find((item) => item.key === "ozonFbsLogistics")?.amountRub, 77.87);
   assert.ok(
     result.ozon.dbs.warnings.some(
       (warning) => warning.includes("Ozon КГТ DBS/RFBS") && warning.includes("доставка PIM.Seller считается по расчётному весу")
@@ -1365,6 +1385,8 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   assert.ok(tariffs.logistics.ozonLogistics.deliveryClusters.includes("Казань"));
   assert.equal(tariffs.logistics.ozonLogistics.pickupPointRub, 25);
   assert.equal(tariffs.logistics.ozonLogistics.fbsAcceptanceRub, 20);
+  assert.equal(tariffs.logistics.ozonLogistics.tariffSource, "logistika-fbo-fbs-28082026_1784031962.xlsx");
+  assert.equal(tariffs.logistics.ozonLogistics.tariffEffectiveFrom, "2026-08-28");
   assert.equal(tariffs.logistics.ozonLogistics.storageFreeDaysSource, "Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx");
   assert.equal(tariffs.logistics.ozonLogistics.storageRates?.standardRubPerLiterDay, 2.5);
   assert.equal(tariffs.logistics.ozonLogistics.storageRates?.kgtRubPerLiterDay, 0.1);
@@ -1387,6 +1409,22 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   assert.equal(dbsKeys.includes("ozonFbsLogistics"), false);
   assert.equal(dbsKeys.includes("ozonFboStorage"), false);
   assert.equal(dbsKeys.includes("ozonPickupPoint"), false);
+});
+
+test("ozon future logistics tariff note disappears after effective date", () => {
+  const futureTariffs = cloneTariffs();
+  futureTariffs.logistics.ozonLogistics.tariffEffectiveFrom = "9999-12-31";
+  const futureLogistics = calculateAllSchemes(skus[0], settings, futureTariffs).ozon.fbo.breakdown.find(
+    (item) => item.key === "ozonFboLogisticsTariff"
+  );
+  assert.match(futureLogistics?.calculationNote ?? "", /Данные логистики вступят в силу с 31\.12\.9999/);
+
+  const activeTariffs = cloneTariffs();
+  activeTariffs.logistics.ozonLogistics.tariffEffectiveFrom = "2000-01-01";
+  const activeLogistics = calculateAllSchemes(skus[0], settings, activeTariffs).ozon.fbo.breakdown.find(
+    (item) => item.key === "ozonFboLogisticsTariff"
+  );
+  assert.doesNotMatch(activeLogistics?.calculationNote ?? "", /Данные логистики вступят в силу/);
 });
 
 test("Ozon FBO storage uses free placement days by product type and Ozon dimension class", () => {
@@ -1424,8 +1462,8 @@ test("Ozon marketplace tariffs are treated as VAT-inclusive source amounts", () 
 
   assert.ok(ozonMarketplaceItems.every((item) => item.vatMode === "with_vat"));
   assert.ok(ozonMarketplaceItems.every((item) => item.vatNote === "без НДС"));
-  assert.equal(fboPart("commission")?.amountWithVatRub, 5365);
-  assert.equal(fboPart("commission")?.amountRub, 4397.54);
+  assert.equal(fboPart("commission")?.amountWithVatRub, 7830);
+  assert.equal(fboPart("commission")?.amountRub, 6418.03);
   assert.equal(fboPart("ozonFboLogisticsTariff")?.amountWithVatRub, 857);
   assert.equal(fboPart("ozonFboLogisticsTariff")?.amountRub, 702.46);
   assert.equal(fboPart("ozonFboNonlocalMarkup")?.amountWithVatRub, 1160);
@@ -1438,8 +1476,8 @@ test("Ozon marketplace tariffs are treated as VAT-inclusive source amounts", () 
   assert.equal(fbsPart("ozonFbsAcceptance")?.amountRub, 16.39);
   assert.equal(fbsPart("ozonFbsLogistics")?.amountWithVatRub, 857);
   assert.equal(fbsPart("ozonFbsLogistics")?.amountRub, 702.46);
-  assert.equal(dbsPart("commission")?.amountWithVatRub, 5945);
-  assert.equal(dbsPart("commission")?.amountRub, 4872.95);
+  assert.equal(dbsPart("commission")?.amountWithVatRub, 7830);
+  assert.equal(dbsPart("commission")?.amountRub, 6418.03);
 });
 
 test("every SKU returns all six marketplace and scheme combinations", () => {
@@ -1470,9 +1508,9 @@ test("display breakdown follows client article order without changing totals", (
     [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 35.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
     [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 40%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
     [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 45%", "Операции PIM.Seller", "Последняя миля"]],
-    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 44%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
-    [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
-    [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 48%", "Операции PIM.Seller", "Последняя миля"]]
+    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 54%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 54%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 54%", "Операции PIM.Seller", "Последняя миля"]]
   ]);
 
   for (const schemeResult of flattenResults(result)) {
@@ -1577,5 +1615,5 @@ test("golden furniture examples have stable best options", () => {
     const best = findBestResult(calculateAllSchemes(sku, settings, tariffs));
     return `${sku.id}:${best.marketplace}:${best.scheme}`;
   });
-  assert.deepEqual(bestBySku, ["hanger:ozon:fbo", "cabinet:ozon:fbo", "table:ozon:fbo"]);
+  assert.deepEqual(bestBySku, ["hanger:wildberries:dbs", "cabinet:ozon:fbo", "table:wildberries:dbs"]);
 });

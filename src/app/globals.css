@@ -2208,13 +2208,14 @@ summary:hover {
 }
 
 .breakdown-help-card {
-  right: -10px;
-  bottom: calc(100% + 8px);
-  left: auto;
-  top: auto;
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  left: var(--breakdown-help-left, 16px);
+  top: var(--breakdown-help-top, 16px);
   z-index: 1000;
-  width: 280px;
-  max-width: min(280px, calc(100vw - 40px));
+  width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   border: 1px solid rgba(12, 79, 69, 0.22);
   background: #ffffff;
   color: #17212b;
@@ -2223,6 +2224,9 @@ summary:hover {
   pointer-events: none;
   box-shadow: 0 18px 42px rgba(18, 27, 36, 0.2), 0 2px 8px rgba(18, 27, 36, 0.08);
   text-align: left;
+  transform: translateY(var(--breakdown-help-translate-y, -100%));
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .breakdown-help-card .help-text {
@@ -3094,6 +3098,547 @@ button.mpstats-subtab.active {
   font-size: 13px;
 }
 
+.seller-evaluation-page {
+  min-height: 100vh;
+  padding: 22px;
+}
+
+.seller-evaluation-shell {
+  display: grid;
+  gap: 14px;
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 20px 0 52px;
+}
+
+.seller-evaluation-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+}
+
+.seller-evaluation-top h1 {
+  margin: 0;
+}
+
+.seller-evaluation-top p:not(.eyebrow) {
+  max-width: 870px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.seller-evaluation-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.seller-evaluation-controls,
+.seller-evaluation-card,
+.seller-evaluation-state,
+.seller-evaluation-notice {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-sm);
+}
+
+.seller-evaluation-controls {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(190px, 0.46fr) minmax(180px, 0.42fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+}
+
+.seller-evaluation-controls label,
+.seller-decision-grid label,
+.seller-comment-field {
+  display: grid;
+  gap: 7px;
+}
+
+.seller-evaluation-controls label span,
+.seller-decision-grid label span,
+.seller-comment-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.seller-evaluation-input input {
+  font-size: 15px;
+}
+
+.seller-evaluation-notice {
+  margin: 0;
+  border-color: rgba(15, 143, 114, 0.24);
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.seller-evaluation-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.74fr) minmax(520px, 1.26fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.seller-evaluation-card {
+  padding: 16px;
+}
+
+.seller-card {
+  display: grid;
+  gap: 14px;
+}
+
+.seller-card-head,
+.decision-card-top,
+.section-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.seller-card-head h2,
+.decision-card-top h2,
+.section-title-row h2,
+.signal-block h2,
+.seller-evaluation-state h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.seller-marketplace-pill,
+.decision-card-top span,
+.section-title-row > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid rgba(15, 143, 114, 0.24);
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 850;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.seller-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.seller-meta-grid div,
+.seller-evaluation-metric,
+.seller-geo-stats div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  padding: 10px;
+}
+
+.seller-meta-grid dt,
+.seller-evaluation-metric span,
+.seller-geo-stats span,
+.fulfillment-row span,
+.opportunity-card span {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.seller-meta-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.decision-card {
+  display: grid;
+  gap: 14px;
+  overflow: hidden;
+  border-color: rgba(15, 143, 114, 0.26);
+  background:
+    linear-gradient(135deg, rgba(15, 143, 114, 0.1), rgba(255, 255, 255, 0) 54%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.decision-card.potential-low {
+  border-color: rgba(139, 150, 160, 0.32);
+  background:
+    linear-gradient(135deg, rgba(139, 150, 160, 0.1), rgba(255, 255, 255, 0) 54%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.decision-card.potential-unknown {
+  border-color: rgba(217, 144, 24, 0.32);
+  background:
+    linear-gradient(135deg, rgba(217, 144, 24, 0.11), rgba(255, 255, 255, 0) 54%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.decision-verdict {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(18px, 1.5vw, 24px);
+  font-weight: 820;
+  line-height: 1.26;
+}
+
+.decision-factors {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 12px;
+}
+
+.decision-factors div {
+  border: 1px solid rgba(15, 143, 114, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 12px;
+}
+
+.decision-factors strong,
+.signal-block h2 {
+  color: var(--accent-strong);
+}
+
+.decision-factors ul,
+.signal-block ul {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.decision-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid rgba(15, 143, 114, 0.18);
+  padding-top: 12px;
+}
+
+.decision-action span {
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.decision-action div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.seller-evaluation-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.seller-evaluation-metric strong,
+.seller-geo-stats strong {
+  display: block;
+  color: var(--ink);
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.seller-evaluation-metric small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.seller-evaluation-main-grid {
+  display: grid;
+  grid-template-columns: minmax(520px, 1.1fr) minmax(420px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.seller-section-summary,
+.seller-source-note {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.seller-source-note {
+  border: 1px solid rgba(217, 144, 24, 0.26);
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: #9a650c;
+  padding: 10px 12px;
+}
+
+.seller-geo-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.seller-evaluation-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.seller-evaluation-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.seller-evaluation-table th,
+.seller-evaluation-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.seller-evaluation-table th {
+  background: #eef3ec;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.seller-evaluation-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.fulfillment-bars {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.fulfillment-row {
+  display: grid;
+  grid-template-columns: 142px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.fulfillment-row strong {
+  display: block;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.fulfillment-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8eee7;
+}
+
+.fulfillment-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #52b788);
+}
+
+.seller-evaluation-two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.signal-block.positive {
+  border-color: rgba(15, 143, 114, 0.24);
+}
+
+.signal-block.warning {
+  border-color: rgba(217, 144, 24, 0.28);
+}
+
+.signal-block.warning h2 {
+  color: #9a650c;
+}
+
+.opportunity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.opportunity-card {
+  min-height: 136px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  padding: 12px;
+}
+
+.opportunity-card strong {
+  display: block;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.opportunity-card p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.42;
+}
+
+.opportunity-high {
+  border-color: rgba(15, 143, 114, 0.28);
+  background: #f1fbf7;
+}
+
+.opportunity-medium,
+.opportunity-needs_calc {
+  border-color: rgba(217, 144, 24, 0.28);
+  background: #fffaf0;
+}
+
+.opportunity-low {
+  background: #f6f8f7;
+}
+
+.opportunity-unknown {
+  border-style: dashed;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.seller-decision-form {
+  display: grid;
+  gap: 14px;
+}
+
+.decision-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.decision-status-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 760;
+  padding: 0 12px;
+}
+
+.decision-status-row label.active {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+}
+
+.decision-status-row input {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.seller-decision-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.34fr) minmax(260px, 1fr) minmax(180px, 0.4fr);
+  gap: 10px;
+}
+
+.seller-comment-field textarea {
+  min-height: 98px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  padding: 12px;
+  resize: vertical;
+}
+
+.seller-decision-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.seller-decision-actions span {
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.seller-evaluation-state {
+  display: grid;
+  gap: 8px;
+  border-style: dashed;
+  padding: 22px;
+}
+
+.seller-evaluation-state h2,
+.seller-evaluation-state p {
+  margin: 0;
+}
+
+.seller-evaluation-state p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.seller-evaluation-state.error {
+  border-color: #f0bbb3;
+  background: #fff4f2;
+}
+
 @media (max-width: 1180px) {
   .settings-band {
     grid-template-columns: repeat(2, minmax(280px, 1fr));
@@ -3114,6 +3659,20 @@ button.mpstats-subtab.active {
   .workspace-controls,
   .workspace-save-form {
     grid-template-columns: 1fr;
+  }
+
+  .seller-evaluation-controls,
+  .seller-evaluation-hero-grid,
+  .seller-evaluation-main-grid,
+  .seller-evaluation-metrics,
+  .opportunity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .seller-evaluation-input,
+  .decision-card,
+  .seller-evaluation-card:first-child {
+    grid-column: 1 / -1;
   }
 }
 
@@ -3241,6 +3800,38 @@ button.mpstats-subtab.active {
   .section-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .seller-evaluation-page {
+    padding: 14px;
+  }
+
+  .seller-evaluation-top,
+  .seller-evaluation-controls,
+  .seller-evaluation-hero-grid,
+  .seller-evaluation-main-grid,
+  .seller-evaluation-two-columns,
+  .seller-decision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .seller-evaluation-top {
+    align-items: stretch;
+  }
+
+  .seller-evaluation-links,
+  .seller-decision-actions,
+  .decision-action div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .seller-evaluation-links .secondary-link,
+  .seller-evaluation-controls button,
+  .decision-action button,
+  .seller-decision-actions button {
+    justify-content: center;
+    width: 100%;
   }
 
   .section-heading span {

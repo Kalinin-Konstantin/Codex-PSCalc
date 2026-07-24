@@ -17,10 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "src" / "data" / "generated"
 
 WB_FILE = ROOT / "KVV_Wildberries_комиссии_с_07.07.26.xlsx"
-OZON_FILE = ROOT / "Таблица_категорий_для_расчёта_вознаграждения_06042026-2_1773932702.xlsx"
+OZON_FILE = ROOT / "Таблица_категорий_для_расчёта_вознаграждения_28082026-2_1784189410.xlsx"
+OZON_COMMISSION_EFFECTIVE_FROM = "2026-08-28"
 WAREHOUSE_FILE = ROOT / "Складские операции.docx"
 MIDDLE_MILE_FILE = ROOT / "Средняя миля .docx"
-OZON_LOGISTICS_FILE = ROOT / "logistika-fbo-fbs-01052026_1777018200.xlsx"
+OZON_LOGISTICS_FILE = ROOT / "logistika-fbo-fbs-28082026_1784031962.xlsx"
+OZON_LOGISTICS_EFFECTIVE_FROM = "2026-08-28"
 OZON_NONLOCAL_MARKUP_FILE = ROOT / "Наценка за нелокальную продажу.xlsx"
 OZON_FREE_STORAGE_DAYS_FILE = ROOT / "Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx"
 
@@ -157,43 +159,93 @@ def normalize_ozon() -> dict[str, Any]:
     wb = openpyxl.load_workbook(OZON_FILE, read_only=True, data_only=True)
     ws = wb.active
     entries: list[dict[str, Any]] = []
+    header = [clean_text(value) for value in next(ws.iter_rows(min_row=2, max_row=2, values_only=True))]
+    is_new_layout = "Основная категория" in header[:3]
+
+    def six_band_values(value_to_100: float | None, value_100_to_300: float | None, value_over_300: float | None) -> dict[str, float]:
+        values = [value_to_100, value_100_to_300, value_over_300, value_over_300, value_over_300, value_over_300]
+        if any(value is None for value in values):
+            raise ValueError("Ozon commission row has empty required value")
+        return dict(zip([band["key"] for band in PRICE_BANDS], values))
+
     for row in ws.iter_rows(min_row=3, values_only=True):
-        category = clean_text(row[0])
-        product_type = clean_text(row[1])
-        if not category or not product_type:
+        try:
+            if is_new_layout:
+                main_category = clean_text(row[0])
+                category = clean_text(row[1])
+                product_type = clean_text(row[2])
+                if not category or not product_type:
+                    continue
+                fbo = six_band_values(parse_percent(row[3]), parse_percent(row[4]), parse_percent(row[5]))
+                fbs = six_band_values(parse_percent(row[9]), parse_percent(row[10]), parse_percent(row[11]))
+                rfbs_value = parse_percent(row[12])
+                if rfbs_value is None:
+                    continue
+                dbs = {band["key"]: rfbs_value for band in PRICE_BANDS}
+            else:
+                main_category = None
+                category = clean_text(row[0])
+                product_type = clean_text(row[1])
+                if not category or not product_type:
+                    continue
+                fbo_values = [parse_percent(row[index]) for index in range(2, 8)]
+                fbs_values = [parse_percent(row[index]) for index in range(14, 20)]
+                rfbs_values = [parse_percent(row[index]) for index in range(20, 24)]
+                if any(value is None for value in fbo_values + fbs_values):
+                    continue
+                fbo = dict(zip([band["key"] for band in PRICE_BANDS], fbo_values))
+                fbs = dict(zip([band["key"] for band in PRICE_BANDS], fbs_values))
+                dbs = {
+                    "300to1500": rfbs_values[0],
+                    "1500to5000": rfbs_values[1],
+                    "5000to10000": rfbs_values[2],
+                    "over10000": rfbs_values[3],
+                }
+        except ValueError:
             continue
-        fbo_values = [parse_percent(row[index]) for index in range(2, 8)]
-        fbs_values = [parse_percent(row[index]) for index in range(14, 20)]
-        rfbs_values = [parse_percent(row[index]) for index in range(20, 24)]
-        if any(value is None for value in fbo_values + fbs_values):
-            continue
-        entries.append(
-            {
-                "category": category,
-                "productType": product_type,
-                "commissionBands": {
-                    "fbo": dict(zip([band["key"] for band in PRICE_BANDS], fbo_values)),
-                    "fbs": dict(zip([band["key"] for band in PRICE_BANDS], fbs_values)),
-                    "dbs": {
-                        "300to1500": rfbs_values[0],
-                        "1500to5000": rfbs_values[1],
-                        "5000to10000": rfbs_values[2],
-                        "over10000": rfbs_values[3],
-                    },
-                },
-            }
-        )
-    return {
-        "source": OZON_FILE.name,
-        "marketplace": "ozon",
-        "columnMapping": {
+
+        entry = {
+            "category": category,
+            "productType": product_type,
+            "commissionSource": OZON_FILE.name,
+            "effectiveFrom": OZON_COMMISSION_EFFECTIVE_FROM,
+            "commissionBands": {
+                "fbo": fbo,
+                "fbs": fbs,
+                "dbs": dbs,
+            },
+        }
+        if main_category:
+            entry["mainCategory"] = main_category
+        entries.append(entry)
+
+    column_mapping = (
+        {
+            "mainCategory": "Основная категория",
+            "category": "Категория",
+            "productType": "Тип товара",
+            "fboColumns": "D:F",
+            "fboFreshColumnsIgnored": "G:I",
+            "fbsColumns": "J:L",
+            "dbsUsesRfbsColumns": "M:M",
+            "rfbsMotorcycleOver500kIgnored": "N:N",
+        }
+        if is_new_layout
+        else {
             "category": "Категория",
             "productType": "Тип товара",
             "fboColumns": "C:H",
             "fboFreshColumnsIgnored": "I:N",
             "fbsColumns": "O:T",
             "dbsUsesRfbsColumns": "U:X",
-        },
+        }
+    )
+    return {
+        "source": OZON_FILE.name,
+        "marketplace": "ozon",
+        "effectiveFrom": OZON_COMMISSION_EFFECTIVE_FROM,
+        "sourcePriceBands": ["до 100 руб.", "свыше 100 до 300 руб.", "свыше 300 руб."] if is_new_layout else None,
+        "columnMapping": column_mapping,
         "priceBands": PRICE_BANDS,
         "entries": entries,
     }
@@ -400,6 +452,7 @@ def normalize_ozon_logistics() -> dict[str, Any]:
 
     return {
         "tariffSource": OZON_LOGISTICS_FILE.name,
+        "tariffEffectiveFrom": OZON_LOGISTICS_EFFECTIVE_FROM,
         "nonlocalMarkupSource": OZON_NONLOCAL_MARKUP_FILE.name,
         "storageFreeDaysSource": OZON_FREE_STORAGE_DAYS_FILE.name,
         "storageRates": {

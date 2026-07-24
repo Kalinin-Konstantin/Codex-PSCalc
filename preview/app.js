@@ -240,6 +240,14 @@ function init() {
     await handleSkuImport(event.target.files?.[0] ?? null);
     event.target.value = "";
   });
+  document.addEventListener("pointerover", (event) => {
+    const help = event.target.closest?.(".breakdown-help");
+    if (help) positionBreakdownHelp(help);
+  });
+  document.addEventListener("focusin", (event) => {
+    const help = event.target.closest?.(".breakdown-help");
+    if (help) positionBreakdownHelp(help);
+  });
   render();
 }
 
@@ -1610,7 +1618,7 @@ function resultCell(result, bestByMarketplace) {
           : ""
       }
       <details>
-        <summary>Статьи</summary>
+        <summary>Детализация</summary>
         <ul class="breakdown-list">
           ${displayBreakdown
             .map(
@@ -1686,16 +1694,37 @@ function sumBreakdownOptional(items, key) {
 
 function breakdownHelpHtml(item) {
   const note = item.calculationNote ?? "Расчёт по выбранным параметрам SKU и тарифному справочнику.";
+  const total = isCompactBreakdownHelp(item)
+    ? ""
+    : `<span class="help-text help-total">${item.isReferenceOnly ? "Справочно" : "Итого"}: ${formatRub(item.amountRub)} ${escapeHtml(item.vatNote)}.</span>`;
   return `
     <span class="help breakdown-help">
       <button type="button" class="help-trigger breakdown-help-trigger" aria-label="Как считается ${escapeHtml(item.label.toLowerCase())}?">?</button>
       <span class="help-card breakdown-help-card" role="tooltip">
         <strong>${escapeHtml(item.label)}</strong>
         <span class="help-text">${escapeHtml(note)}</span>
-        <span class="help-text help-total">${item.isReferenceOnly ? "Справочно" : "Итого"}: ${formatRub(item.amountRub)} ${escapeHtml(item.vatNote)}.</span>
+        ${total}
       </span>
     </span>
   `;
+}
+
+function isCompactBreakdownHelp(item) {
+  return item.key === "commission" || item.key === "ozonFboLogisticsTariff" || item.key === "ozonFbsLogistics";
+}
+
+function positionBreakdownHelp(help) {
+  const trigger = help.querySelector(".breakdown-help-trigger");
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(320, Math.max(220, window.innerWidth - 32));
+  const left = Math.min(Math.max(16, rect.right - width + 8), window.innerWidth - width - 16);
+  const placement = rect.top > 180 ? "above" : "below";
+  const top = placement === "above" ? rect.top - 8 : rect.bottom + 8;
+  help.style.setProperty("--breakdown-help-left", `${left}px`);
+  help.style.setProperty("--breakdown-help-top", `${top}px`);
+  help.style.setProperty("--breakdown-help-translate-y", placement === "above" ? "-100%" : "0");
+  help.dataset.placement = placement;
 }
 
 function renderAdminMargin(rows) {
@@ -2075,13 +2104,20 @@ function commissionCost(marketplace, scheme, sku) {
   const entry = findOzonCommissionEntry(sku);
   const bands = entry?.commissionBands?.[scheme];
   const rate = bands?.[priceBandKey(sku.price, scheme)] ?? bands?.over10000 ?? null;
-  return rate == null ? null : commissionWithDiscount(sku.price, rate, marketplace, scheme, sku);
+  return rate == null ? null : commissionWithDiscount(sku.price, rate, marketplace, scheme, sku, entry);
 }
 
-function commissionWithDiscount(price, rate, marketplace, scheme, sku) {
+function commissionWithDiscount(price, rate, marketplace, scheme, sku, entry) {
   const discount = commissionDiscount(marketplace, scheme, sku);
   const effectiveRate = applyCommissionDiscount(rate, discount);
-  return { amountRub: price * effectiveRate, rate: effectiveRate, originalRate: rate, discount };
+  return {
+    amountRub: price * effectiveRate,
+    rate: effectiveRate,
+    originalRate: rate,
+    discount,
+    commissionSource: entry?.commissionSource,
+    effectiveFrom: entry?.effectiveFrom
+  };
 }
 
 function commissionDiscount(marketplace, scheme, sku) {
@@ -2144,9 +2180,25 @@ function formatCommissionRate(commission) {
 }
 
 function commissionCalculationNote(commission) {
-  const base = `Цена товара × ставка комиссии ${formatCommissionRate(commission)}.`;
-  if (!commission.discount) return base;
-  return `${base} Снижение ${formatRate(commission.discount.value)} применяется за Быструю сдачу.`;
+  return `Цена товара х ставка комиссии ${formatRate(commission.rate)}.${futureCommissionTariffNote(commission)}`;
+}
+
+function futureCommissionTariffNote(commission) {
+  if (!commission.effectiveFrom || todayIsoDate() >= commission.effectiveFrom) return "";
+  return ` Данные комиссии вступят в силу с ${formatIsoDate(commission.effectiveFrom)}.`;
+}
+
+function todayIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatIsoDate(value) {
+  const [year, month, day] = value.split("-");
+  return [day, month, year].filter(Boolean).join(".");
 }
 
 function priceBandKey(price, scheme) {
@@ -2672,7 +2724,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics)
       },
       {
         key: "ozonFboNonlocalMarkup",
@@ -2722,7 +2774,7 @@ function ozonCosts(scheme, sku, warnings) {
         amountRub: baseDelivery,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster)
+        calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics)
       },
       {
         key: "ozonPickupPoint",
@@ -2753,9 +2805,15 @@ function findOzonLogisticsTariff(volumeLiters, price, originCluster, deliveryClu
   };
 }
 
-function ozonLogisticsNote(tariffRow, volumeLiters, priceRub, originCluster, deliveryCluster) {
+function ozonLogisticsNote(tariffRow, volumeLiters, priceRub, originCluster, deliveryCluster, logistics) {
   if (!tariffRow) return `Тариф Ozon для направления ${originCluster} → ${deliveryCluster}, объёма ${formatNumber(volumeLiters)} л и цены ${formatNumber(priceRub)} ₽ не найден.`;
-  return `${tariffRow.sourceLabel}: объём ${formatNumber(volumeLiters)} л попадает в диапазон "${tariffRow.volumeLabel}", ${tariffRow.priceBandLabel}; тариф = ${formatNumber(tariffRow.rub)} ₽ с НДС.`;
+  return `Тариф логистики Ozon ${formatNumber(tariffRow.rub)} ₽.${futureOzonLogisticsTariffNote(logistics)}`;
+}
+
+function futureOzonLogisticsTariffNote(logistics) {
+  const effectiveFrom = logistics.tariffEffectiveFrom;
+  if (!effectiveFrom || todayIsoDate() >= effectiveFrom) return "";
+  return ` Данные логистики вступят в силу с ${formatIsoDate(effectiveFrom)}.`;
 }
 
 function ozonFboStorageCost(sku, volumeLiters, storageDays, logistics) {
