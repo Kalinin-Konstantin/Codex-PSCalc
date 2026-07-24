@@ -38,7 +38,7 @@ const displayBreakdownOrder = {
     dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
   },
   ozon: {
-    fbo: ["firstMile", "commission", "ozonFboNonlocalMarkup", "ozonFboStorage", "ozonFboLogisticsTariff", "ozonPickupPoint"],
+    fbo: ["firstMile", "commission", "ozonFboStorage", "ozonFboLogisticsTariff", "ozonPickupPoint"],
     fbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "middleMile", "ozonFbsAcceptance", "ozonFbsLogistics", "ozonPickupPoint"],
     dbs: ["firstMile", "commission", WAREHOUSE_OPERATIONS_DISPLAY_KEY, "lastMile"]
   }
@@ -52,7 +52,6 @@ const displayLabels = {
   wbLastMile: "Логистика WB до покупателя",
   wbFbsLastMile: "Логистика WB FBS",
   ozonFboLogisticsTariff: "Логистика Ozon",
-  ozonFboNonlocalMarkup: "Наценка за нелокальную продажу",
   ozonFboStorage: "Хранение Ozon",
   ozonPickupPoint: "Доставка до ПВЗ",
   ozonFbsAcceptance: "Приёмка отправления",
@@ -121,7 +120,6 @@ function init() {
   $("vat-display-mode").value = settings.vatDisplayMode;
   syncMarkupInputs();
   $("localization-index").value = settings.localizationIndex;
-  $("sales-distribution-index").value = settings.salesDistributionIndex;
   fillDatalist("wb-categories", lookupDatalistValues(window.__PIM_DATA__.wbCategories));
   fillDatalist("ozon-categories", lookupDatalistValues(window.__PIM_DATA__.ozonCategories));
 
@@ -223,10 +221,6 @@ function init() {
   });
   $("localization-index").addEventListener("input", (event) => {
     settings.localizationIndex = Number(event.target.value) || 0;
-    render();
-  });
-  $("sales-distribution-index").addEventListener("input", (event) => {
-    settings.salesDistributionIndex = Number(event.target.value) || 0;
     render();
   });
   $("add-sku").addEventListener("click", () => {
@@ -2121,11 +2115,24 @@ function commissionWithDiscount(price, rate, marketplace, scheme, sku, entry) {
 }
 
 function commissionDiscount(marketplace, scheme, sku) {
+  if (marketplace === "ozon" && scheme === "fbo") {
+    const logistics = window.__PIM_DATA__.logistics.ozonLogistics;
+    const { originCluster, deliveryCluster } = ozonRouteClusters(logistics);
+    if (originCluster !== deliveryCluster) return null;
+    const discount = logistics.localSaleDiscounts.find((item) => item.deliveryCluster === deliveryCluster);
+    if (!discount || discount.percent <= 0) return null;
+    return {
+      value: discount.percent,
+      reason: "ozonLocalSale",
+      cluster: deliveryCluster,
+      effectiveFrom: logistics.localSaleDiscountEffectiveFrom
+    };
+  }
   if (!settings.fastHandover || scheme !== "fbs") return null;
   if (marketplace === "wildberries") {
-    return classifySkuDimensions(sku).wildberries === "sgt" ? null : { value: WB_FAST_HANDOVER_DISCOUNT };
+    return classifySkuDimensions(sku).wildberries === "sgt" ? null : { value: WB_FAST_HANDOVER_DISCOUNT, reason: "fastHandover" };
   }
-  return { value: ozonFastHandoverDiscount(settings.ozonFastHandoverType) };
+  return { value: ozonFastHandoverDiscount(settings.ozonFastHandoverType), reason: "fastHandover" };
 }
 
 function addDimensionWarnings(marketplace, scheme, classes, warnings) {
@@ -2185,7 +2192,14 @@ function commissionCalculationNote(commission) {
 
 function commissionDiscountNote(commission) {
   if (!commission.discount) return "";
-  return ` Применена скидка ${formatRate(commission.discount.value)} за быструю сдачу отправления.`;
+  if (commission.discount.reason === "fastHandover") {
+    return ` Применена скидка ${formatRate(commission.discount.value)} за быструю сдачу отправления.`;
+  }
+  const effectiveNote =
+    commission.discount.effectiveFrom && todayIsoDate() < commission.discount.effectiveFrom
+      ? ` Скидка действует с ${formatIsoDate(commission.discount.effectiveFrom)}.`
+      : "";
+  return ` Применена скидка ${formatRate(commission.discount.value)} за локальную продажу в кластере "${commission.discount.cluster}".${effectiveNote}`;
 }
 
 function futureCommissionTariffNote(commission) {
@@ -2482,10 +2496,10 @@ function wildberriesCosts(scheme, sku, warnings) {
       {
         key: "wbLastMile",
         label: "Логистика WB до покупателя",
-        amountRub: (delivery ?? 0) * settings.localizationIndex + sku.price * settings.salesDistributionIndex,
+        amountRub: (delivery ?? 0) * settings.localizationIndex,
         source: "marketplace",
         vatMode: "with_vat",
-        calculationNote: wbFboDeliveryNote(metrics.volumeLiters, sku.price, settings.localizationIndex, settings.salesDistributionIndex, delivery, deliverySource)
+        calculationNote: wbFboDeliveryNote(metrics.volumeLiters, settings.localizationIndex, delivery, deliverySource)
       },
       {
         key: "wbAcceptance",
@@ -2626,12 +2640,10 @@ function wbAcceptanceCost(sku, volumeLiters, warehouse, supplyType) {
   return { amountRub: 1.7 * volumeLiters * acceptance.coefficient };
 }
 
-function wbFboDeliveryNote(volumeLiters, priceRub, localizationIndex, salesDistributionIndex, deliveryRub, source) {
+function wbFboDeliveryNote(volumeLiters, localizationIndex, deliveryRub, source) {
   if (deliveryRub == null || !source) return "Тариф логистики WB не найден.";
   const localizedRub = money(deliveryRub * localizationIndex);
-  const salesDistributionRub = money(priceRub * salesDistributionIndex);
-  const totalRub = money(localizedRub + salesDistributionRub);
-  return `${source.name}: ${wbVolumeTariffFormula(volumeLiters, source.firstLiterRub, source.additionalLiterRub, source.coefficientPercent, deliveryRub)} Индекс локализации: ${formatNumber(deliveryRub)} ₽ × ${formatNumber(localizationIndex)} = ${formatNumber(localizedRub)} ₽. Индекс распределения продаж: ${formatNumber(priceRub)} ₽ × ${formatRate(salesDistributionIndex)} = ${formatNumber(salesDistributionRub)} ₽. Итого: ${formatNumber(totalRub)} ₽ с НДС.`;
+  return `${source.name}: ${wbVolumeTariffFormula(volumeLiters, source.firstLiterRub, source.additionalLiterRub, source.coefficientPercent, deliveryRub)} Индекс локализации: ${formatNumber(deliveryRub)} ₽ × ${formatNumber(localizationIndex)} = ${formatNumber(localizedRub)} ₽. Итого: ${formatNumber(localizedRub)} ₽ с НДС.`;
 }
 
 function wbFbsDeliveryNote(volumeLiters, warehouse, deliveryRub) {
@@ -2710,15 +2722,10 @@ function wbSupplyLabel(supplyType) {
 function ozonCosts(scheme, sku, warnings) {
   const logistics = window.__PIM_DATA__.logistics.ozonLogistics;
   const metrics = skuMetrics(sku);
-  const originCluster = settings.ozonOriginCluster || logistics.cityToCluster[settings.firstMileCity] || settings.firstMileCity;
-  const deliveryCluster = settings.ozonDeliveryCluster || originCluster;
+  const { originCluster, deliveryCluster } = ozonRouteClusters(logistics);
   const tariffRow = findOzonLogisticsTariff(metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics);
-  const nonlocalMarkupPercent =
-    scheme !== "fbo" || originCluster === deliveryCluster ? 0 : logistics.nonlocalMarkups.find((item) => item.deliveryCluster === deliveryCluster)?.percent;
   if (scheme !== "dbs" && !tariffRow) warnings.push(`Не найден тариф логистики Ozon для направления "${originCluster}" -> "${deliveryCluster}"`);
-  if (scheme === "fbo" && nonlocalMarkupPercent == null) warnings.push(`Не найдена наценка Ozon за нелокальную продажу для кластера "${deliveryCluster}"`);
   const baseDelivery = tariffRow?.rub ?? 0;
-  const nonlocalMarkup = sku.price * (nonlocalMarkupPercent ?? 0);
   if (scheme === "fbo") {
     const storage = ozonFboStorageCost(sku, metrics.volumeLiters, settings.storageDays, logistics);
     if (storage == null) warnings.push(`Не найден срок бесплатного хранения Ozon для типа товара "${sku.ozonProductType}"`);
@@ -2730,17 +2737,6 @@ function ozonCosts(scheme, sku, warnings) {
         source: "marketplace",
         vatMode: "with_vat",
         calculationNote: ozonLogisticsNote(tariffRow, metrics.volumeLiters, sku.price, originCluster, deliveryCluster, logistics)
-      },
-      {
-        key: "ozonFboNonlocalMarkup",
-        label: `Наценка Ozon за нелокальную продажу ${formatRate(nonlocalMarkupPercent ?? 0)}`,
-        amountRub: nonlocalMarkup,
-        source: "marketplace",
-        vatMode: "with_vat",
-        calculationNote:
-          originCluster === deliveryCluster
-            ? `Локальная продажа: ${originCluster} = ${deliveryCluster}, наценка 0 ₽.`
-            : `${formatNumber(sku.price)} ₽ × ${formatRate(nonlocalMarkupPercent ?? 0)} = ${formatNumber(nonlocalMarkup)} ₽ с НДС.`
       },
       {
         key: "ozonFboStorage",
@@ -2792,6 +2788,11 @@ function ozonCosts(scheme, sku, warnings) {
     ];
   }
   return [];
+}
+
+function ozonRouteClusters(logistics) {
+  const originCluster = settings.ozonOriginCluster || logistics.cityToCluster[settings.firstMileCity] || settings.firstMileCity;
+  return { originCluster, deliveryCluster: settings.ozonDeliveryCluster || originCluster };
 }
 
 function findOzonLogisticsTariff(volumeLiters, price, originCluster, deliveryCluster, logistics) {

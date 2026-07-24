@@ -348,7 +348,6 @@
     },
     "defaultSupplyType": "box",
     "defaultLocalizationIndex": 1,
-    "defaultSalesDistributionIndex": 0,
     "smallVolumeBands": [
       {
         "minLiter": 0.001,
@@ -381,7 +380,7 @@
     "storagePalletDayRub": 23,
     "defaultKtr": 1,
     "calculationRules": {
-      "fboLogistics": "deliveryTariff(volumeLiters, wbSupplyType) * localizationIndex + price * salesDistributionIndex",
+      "fboLogistics": "deliveryTariff(volumeLiters, wbSupplyType) * localizationIndex",
       "fboAcceptanceBox": "if allowUnload=true and coefficient<=0: free; if coefficient>0: 1.7 * volumeLiters * coefficient; otherwise warn that supply is unavailable",
       "fboAcceptancePallet": "if allowUnload=true and coefficient<=0: free; if coefficient>0: 500 * coefficient / itemsPerPallet; otherwise warn that supply is unavailable",
       "fboStorageBox": "(storageBaseRub + max(0, volumeLiters - 1) * storageAdditionalLiterRub) * storageDays",
@@ -5928,24 +5927,26 @@
     ]
   },
   "ozonLogistics": {
-    "source": "logistika-fbo-fbs-28082026_1784031962.xlsx; Наценка за нелокальную продажу.xlsx; Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx",
+    "source": "logistika-fbo-fbs-28082026_1784031962.xlsx; Ozon_FBO Скидки за локальную продажу.xlsx; Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx",
     "status": "business confirmed Ozon FBO/FBS logistics source",
     "calculationRules": {
       "originCluster": "derived from the city/cluster where the seller supplied the goods",
       "deliveryCluster": "local means originCluster; otherwise selected from Ozon delivery clusters",
       "tariff": "match by volumeLiters/VGH, originCluster, deliveryCluster, and price <= 300 or > 300; applies to standard and KGT goods",
-      "nonlocalMarkup": "FBO only: 0 for local delivery; otherwise price * deliveryCluster markup percent",
-      "fboLogistics": "tariff + nonlocalMarkup",
+      "localSaleDiscount": "FBO commission only: if originCluster equals deliveryCluster, subtract the listed cluster discount in percentage points; unlisted clusters get no discount",
+      "fboLogistics": "tariff; nonlocal markup is not applied",
       "fboStorage": "FBO only: max(0, storageDays - freeStorageDays) * volumeLiters * storageRubPerLiterDay; freeStorageDays are matched by Ozon category/product type and standard/KGT class",
       "fboPickupPoint": "pickupPointRub",
-      "fbs": "fbsAcceptanceRub + tariff + pickupPointRub; nonlocal markup is not applied to FBS",
+      "fbs": "fbsAcceptanceRub + tariff + pickupPointRub; local sale discount is not applied to FBS",
       "dbs": "no Ozon marketplace logistics in current MVP model; RFBS is treated as DBS for commissions",
       "kgtDelivery": "FBO/FBS KGT delivery uses the same logistika-fbo-fbs matrix as standard goods, by direction and VGH"
     },
     "pickupPointRub": 25,
     "fbsAcceptanceRub": 20,
     "tariffSource": "logistika-fbo-fbs-28082026_1784031962.xlsx",
-    "nonlocalMarkupSource": "Наценка за нелокальную продажу.xlsx",
+    "tariffEffectiveFrom": "2026-08-28",
+    "localSaleDiscountSource": "Ozon_FBO Скидки за локальную продажу.xlsx",
+    "localSaleDiscountEffectiveFrom": "2026-08-30",
     "storageFreeDaysSource": "Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx",
     "storageRates": {
       "standardRubPerLiterDay": 2.5,
@@ -334723,102 +334724,94 @@
         "priceOver300Rub": 2232.0
       }
     ],
-    "nonlocalMarkups": [
+    "localSaleDiscounts": [
       {
-        "deliveryCluster": "Алматы",
-        "percent": 0.06
+        "deliveryCluster": "Оренбург",
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Астана",
-        "percent": 0.06
+        "deliveryCluster": "Пермь",
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Воронеж",
-        "percent": 0.08
+        "deliveryCluster": "Омск",
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Дальний Восток",
+        "deliveryCluster": "Саратов",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Самара",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Ярославль",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Москва, МО и Дальние регионы",
         "percent": 0.0
       },
       {
-        "deliveryCluster": "Екатеринбург",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Казань",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Калининград",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Краснодар",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Красноярск",
+        "deliveryCluster": "Санкт-Петербург и СЗО",
         "percent": 0.0
       },
       {
         "deliveryCluster": "Махачкала",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Москва, МО и Дальние регионы",
-        "percent": 0.08
+        "percent": 0.03
       },
       {
         "deliveryCluster": "Невинномысск",
-        "percent": 0.08
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Новосибирск",
-        "percent": 0.0
-      },
-      {
-        "deliveryCluster": "Омск",
-        "percent": 0.12
-      },
-      {
-        "deliveryCluster": "Оренбург",
-        "percent": 0.12
-      },
-      {
-        "deliveryCluster": "Пермь",
-        "percent": 0.12
-      },
-      {
-        "deliveryCluster": "Ростов",
-        "percent": 0.0
-      },
-      {
-        "deliveryCluster": "Самара",
-        "percent": 0.12
-      },
-      {
-        "deliveryCluster": "Санкт-Петербург и СЗО",
-        "percent": 0.08
-      },
-      {
-        "deliveryCluster": "Саратов",
-        "percent": 0.08
+        "deliveryCluster": "Краснодар",
+        "percent": 0.03
       },
       {
         "deliveryCluster": "Тверь",
-        "percent": 0.08
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Тюмень",
-        "percent": 0.08
+        "deliveryCluster": "Екатеринбург",
+        "percent": 0.03
       },
       {
         "deliveryCluster": "Уфа",
-        "percent": 0.08
+        "percent": 0.03
       },
       {
-        "deliveryCluster": "Ярославль",
-        "percent": 0.08
+        "deliveryCluster": "Тюмень",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Ростов",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Казань",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Калининград",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Новосибирск",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Алматы",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Астана",
+        "percent": 0.03
+      },
+      {
+        "deliveryCluster": "Беларусь",
+        "percent": 0.0
       }
     ],
     "storageFreeDays": [
@@ -420349,7 +420342,6 @@
         "kazakhstanDays": 30,
         "specialTariffNote": null
       }
-    ],
-    "tariffEffectiveFrom": "2026-08-28"
+    ]
   }
 }

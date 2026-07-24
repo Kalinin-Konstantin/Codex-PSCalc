@@ -83,7 +83,6 @@ export function buildClientDefaultSettings(lookups: CalculatorLookupData): Calcu
     wbWarehouse: lookups.wbWarehousesByDestination[defaultCity]?.[0] ?? "",
     wbSupplyType: "box",
     localizationIndex: 1.2,
-    salesDistributionIndex: 0.02,
     ozonOriginCluster: defaultOzonCluster,
     ozonDeliveryCluster: defaultOzonCluster,
     storageDays: 30,

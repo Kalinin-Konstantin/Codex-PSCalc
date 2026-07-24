@@ -155,7 +155,6 @@ logistics.wildberriesLogistics = {
   boxTypeIds: BOX_TYPE_IDS,
   defaultSupplyType: "box",
   defaultLocalizationIndex: 1,
-  defaultSalesDistributionIndex: 0,
   smallVolumeBands: [
     { minLiter: 0.001, maxLiter: 0.2, rub: 23 },
     { minLiter: 0.201, maxLiter: 0.4, rub: 26 },
@@ -168,7 +167,7 @@ logistics.wildberriesLogistics = {
   storagePalletDayRub: 23,
   defaultKtr: 1,
   calculationRules: {
-    fboLogistics: "deliveryTariff(volumeLiters, wbSupplyType) * localizationIndex + price * salesDistributionIndex",
+    fboLogistics: "deliveryTariff(volumeLiters, wbSupplyType) * localizationIndex",
     fboAcceptanceBox: "if allowUnload=true and coefficient<=0: free; if coefficient>0: 1.7 * volumeLiters * coefficient; otherwise warn that supply is unavailable",
     fboAcceptancePallet: "if allowUnload=true and coefficient<=0: free; if coefficient>0: 500 * coefficient / itemsPerPallet; otherwise warn that supply is unavailable",
     fboStorageBox: "(storageBaseRub + max(0, volumeLiters - 1) * storageAdditionalLiterRub) * storageDays",

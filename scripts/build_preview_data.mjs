@@ -66,7 +66,6 @@ const data = {
     wbWarehouse: wbWarehousesByDestination["Москва"]?.[0] ?? "",
     wbSupplyType: logistics.wildberriesLogistics.defaultSupplyType ?? "box",
     localizationIndex: 1.2,
-    salesDistributionIndex: 0.02,
     ozonOriginCluster: ozonClusterForCity("Москва"),
     ozonDeliveryCluster: ozonClusterForCity("Москва"),
     storageDays: 30,

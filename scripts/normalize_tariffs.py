@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,8 @@ WAREHOUSE_FILE = ROOT / "Складские операции.docx"
 MIDDLE_MILE_FILE = ROOT / "Средняя миля .docx"
 OZON_LOGISTICS_FILE = ROOT / "logistika-fbo-fbs-28082026_1784031962.xlsx"
 OZON_LOGISTICS_EFFECTIVE_FROM = "2026-08-28"
-OZON_NONLOCAL_MARKUP_FILE = ROOT / "Наценка за нелокальную продажу.xlsx"
+OZON_LOCAL_SALE_DISCOUNT_FILE = ROOT / "Ozon_FBO Скидки за локальную продажу.xlsx"
+OZON_LOCAL_SALE_DISCOUNT_EFFECTIVE_FROM = "2026-08-30"
 OZON_FREE_STORAGE_DAYS_FILE = ROOT / "Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx"
 
 NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -404,14 +406,14 @@ def normalize_ozon_logistics() -> dict[str, Any]:
             }
         )
 
-    markup_workbook = openpyxl.load_workbook(OZON_NONLOCAL_MARKUP_FILE, read_only=True, data_only=True)
-    markup_sheet = markup_workbook.active
-    nonlocal_markups: list[dict[str, Any]] = []
-    for row in markup_sheet.iter_rows(min_row=1, values_only=True):
-        cluster = clean_text(row[1] if len(row) > 1 else None)
-        percent = parse_percent(row[2] if len(row) > 2 else None)
+    discount_workbook = openpyxl.load_workbook(OZON_LOCAL_SALE_DISCOUNT_FILE, read_only=True, data_only=True)
+    discount_sheet = discount_workbook.active
+    local_sale_discounts: list[dict[str, Any]] = []
+    for row in discount_sheet.iter_rows(min_row=2, values_only=True):
+        cluster = clean_text(row[0] if len(row) > 0 else None)
+        percent = parse_percent(row[1] if len(row) > 1 else None)
         if cluster and percent is not None:
-            nonlocal_markups.append({"deliveryCluster": cluster, "percent": percent})
+            local_sale_discounts.append({"deliveryCluster": cluster, "percent": percent})
 
     storage_workbook = openpyxl.load_workbook(OZON_FREE_STORAGE_DAYS_FILE, read_only=True, data_only=True)
     storage_sheet = storage_workbook["Прайс размещение (БЗ)"]
@@ -453,7 +455,8 @@ def normalize_ozon_logistics() -> dict[str, Any]:
     return {
         "tariffSource": OZON_LOGISTICS_FILE.name,
         "tariffEffectiveFrom": OZON_LOGISTICS_EFFECTIVE_FROM,
-        "nonlocalMarkupSource": OZON_NONLOCAL_MARKUP_FILE.name,
+        "localSaleDiscountSource": OZON_LOCAL_SALE_DISCOUNT_FILE.name,
+        "localSaleDiscountEffectiveFrom": OZON_LOCAL_SALE_DISCOUNT_EFFECTIVE_FROM,
         "storageFreeDaysSource": OZON_FREE_STORAGE_DAYS_FILE.name,
         "storageRates": {
             "standardRubPerLiterDay": 2.5,
@@ -465,13 +468,35 @@ def normalize_ozon_logistics() -> dict[str, Any]:
         "volumeRanges": list(volume_ranges.values()),
         "tariffs": tariffs,
         "defaultTariffs": default_tariffs,
-        "nonlocalMarkups": nonlocal_markups,
+        "localSaleDiscounts": local_sale_discounts,
         "storageFreeDays": storage_free_days,
     }
 
 
-def local_logistics() -> dict[str, Any]:
+def normalized_ozon_logistics_section() -> dict[str, Any]:
     ozon_logistics = normalize_ozon_logistics()
+    return {
+        "source": f"{OZON_LOGISTICS_FILE.name}; {OZON_LOCAL_SALE_DISCOUNT_FILE.name}; {OZON_FREE_STORAGE_DAYS_FILE.name}",
+        "status": "business confirmed Ozon FBO/FBS logistics source",
+        "calculationRules": {
+            "originCluster": "derived from the city/cluster where the seller supplied the goods",
+            "deliveryCluster": "local means originCluster; otherwise selected from Ozon delivery clusters",
+            "tariff": "match by volumeLiters/VGH, originCluster, deliveryCluster, and price <= 300 or > 300; applies to standard and KGT goods",
+            "localSaleDiscount": "FBO commission only: if originCluster equals deliveryCluster, subtract the listed cluster discount in percentage points; unlisted clusters get no discount",
+            "fboLogistics": "tariff; nonlocal markup is not applied",
+            "fboStorage": "FBO only: max(0, storageDays - freeStorageDays) * volumeLiters * storageRubPerLiterDay; freeStorageDays are matched by Ozon category/product type and standard/KGT class",
+            "fboPickupPoint": "pickupPointRub",
+            "fbs": "fbsAcceptanceRub + tariff + pickupPointRub; local sale discount is not applied to FBS",
+            "dbs": "no Ozon marketplace logistics in current MVP model; RFBS is treated as DBS for commissions",
+            "kgtDelivery": "FBO/FBS KGT delivery uses the same logistika-fbo-fbs matrix as standard goods, by direction and VGH",
+        },
+        "pickupPointRub": 25,
+        "fbsAcceptanceRub": 20,
+        **ozon_logistics,
+    }
+
+
+def local_logistics() -> dict[str, Any]:
     first_mile_cities = [
         {"city": "Москва", "rubPerPallet": 1675},
         {"city": "Краснодар", "rubPerPallet": 15472},
@@ -673,24 +698,7 @@ def local_logistics() -> dict[str, Any]:
                 {"name": "Краснодар", "warehouseCoeff": 1.65, "fbsCoeff": 1.6},
             ],
         },
-        "ozonLogistics": {
-            "source": f"{OZON_LOGISTICS_FILE.name}; {OZON_NONLOCAL_MARKUP_FILE.name}; {OZON_FREE_STORAGE_DAYS_FILE.name}",
-            "status": "business confirmed Ozon FBO/FBS logistics source",
-            "calculationRules": {
-                "originCluster": "derived from the city/cluster where the seller supplied the goods",
-                "deliveryCluster": "local means originCluster; otherwise selected from Ozon delivery clusters",
-                "tariff": "match by volumeLiters, originCluster, deliveryCluster, and price <= 300 or > 300",
-                "nonlocalMarkup": "FBO only: 0 for local delivery; otherwise price * deliveryCluster markup percent",
-                "fboLogistics": "tariff + nonlocalMarkup",
-                "fboStorage": "FBO only: max(0, storageDays - freeStorageDays) * volumeLiters * storageRubPerLiterDay; freeStorageDays are matched by Ozon category/product type and standard/KGT class",
-                "fboPickupPoint": "pickupPointRub",
-                "fbs": "fbsAcceptanceRub + tariff + pickupPointRub; nonlocal markup is not applied to FBS",
-                "dbs": "no Ozon marketplace logistics in current MVP model; RFBS is treated as DBS for commissions",
-            },
-            "pickupPointRub": 25,
-            "fbsAcceptanceRub": 20,
-            **ozon_logistics,
-        },
+        "ozonLogistics": normalized_ozon_logistics_section(),
     }
 
 
@@ -702,6 +710,12 @@ def write_json(filename: str, data: dict[str, Any]) -> None:
 
 
 def main() -> None:
+    if "--only-ozon-logistics" in sys.argv:
+        path = OUT / "logistics-assumptions.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["ozonLogistics"] = normalized_ozon_logistics_section()
+        write_json("logistics-assumptions.json", data)
+        return
     write_json("wildberries-commissions.json", normalize_wb())
     write_json("ozon-commissions.json", normalize_ozon())
     write_json("warehouse-tariffs.json", normalize_warehouse())

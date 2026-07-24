@@ -52,7 +52,6 @@ const settings: CalculatorSettings = {
   wbWarehouse: "Коледино",
   wbSupplyType: "box",
   localizationIndex: 1,
-  salesDistributionIndex: 0,
   ozonOriginCluster: "Москва, МО и Дальние регионы",
   ozonDeliveryCluster: "Москва, МО и Дальние регионы",
   storageDays: 30,
@@ -1374,6 +1373,16 @@ test("Wildberries FBO keeps totals when box acceptance is temporarily unavailabl
   assert.ok(!result.wildberries.fbo.warnings.some((warning) => warning.includes("Не найден тариф приёмки")));
 });
 
+test("legacy saved calculations ignore the removed WB sales distribution index", () => {
+  const legacySettings = hydrateCalculatorSettings(settings, { ...settings, salesDistributionIndex: 0.5 });
+  const baseline = calculateAllSchemes(skus[0], settings, tariffs).wildberries.fbo.breakdown.find((item) => item.key === "wbLastMile");
+  const legacy = calculateAllSchemes(skus[0], legacySettings, tariffs).wildberries.fbo.breakdown.find((item) => item.key === "wbLastMile");
+
+  assert.equal(legacy?.amountRub, baseline?.amountRub);
+  assert.equal(legacy?.amountWithVatRub, baseline?.amountWithVatRub);
+  assert.doesNotMatch(legacy?.calculationNote ?? "", /Индекс распределения продаж/);
+});
+
 test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   const result = calculateAllSchemes(skus[0], settings, tariffs);
   const fboPart = (key: string) => result.ozon.fbo.breakdown.find((item) => item.key === key)?.amountRub;
@@ -1388,6 +1397,16 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   const nonlocalFbs = nonlocal.ozon.fbs;
   const nonlocalFboPart = (key: string) => nonlocalFbo.breakdown.find((item) => item.key === key)?.amountRub;
   const nonlocalFbsPart = (key: string) => nonlocalFbs.breakdown.find((item) => item.key === key)?.amountRub;
+  const localKazan = calculateAllSchemes(
+    skus[0],
+    { ...settings, ozonOriginCluster: "Казань", ozonDeliveryCluster: "Казань" },
+    tariffs
+  ).ozon.fbo;
+  const localUnlisted = calculateAllSchemes(
+    skus[0],
+    { ...settings, ozonOriginCluster: "Красноярск", ozonDeliveryCluster: "Красноярск" },
+    tariffs
+  ).ozon.fbo;
 
   assert.equal(tariffs.logistics.ozonLogistics.status, "business confirmed Ozon FBO/FBS logistics source");
   assert.equal(tariffs.logistics.ozonLogistics.cityToCluster["Москва"], "Москва, МО и Дальние регионы");
@@ -1397,11 +1416,21 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   assert.equal(tariffs.logistics.ozonLogistics.fbsAcceptanceRub, 20);
   assert.equal(tariffs.logistics.ozonLogistics.tariffSource, "logistika-fbo-fbs-28082026_1784031962.xlsx");
   assert.equal(tariffs.logistics.ozonLogistics.tariffEffectiveFrom, "2026-08-28");
+  assert.equal(tariffs.logistics.ozonLogistics.localSaleDiscountSource, "Ozon_FBO Скидки за локальную продажу.xlsx");
+  assert.equal(tariffs.logistics.ozonLogistics.localSaleDiscountEffectiveFrom, "2026-08-30");
+  assert.equal(
+    tariffs.logistics.ozonLogistics.localSaleDiscounts.find((item) => item.deliveryCluster === "Казань")?.percent,
+    0.03
+  );
+  assert.equal(
+    tariffs.logistics.ozonLogistics.localSaleDiscounts.find((item) => item.deliveryCluster === "Красноярск"),
+    undefined
+  );
   assert.equal(tariffs.logistics.ozonLogistics.storageFreeDaysSource, "Озон_Сроки_бесплатного_размещения_010626_1778767885.xlsx");
   assert.equal(tariffs.logistics.ozonLogistics.storageRates?.standardRubPerLiterDay, 2.5);
   assert.equal(tariffs.logistics.ozonLogistics.storageRates?.kgtRubPerLiterDay, 0.1);
   assert.equal(fboPart("ozonFboLogisticsTariff"), 202.46);
-  assert.equal(fboPart("ozonFboNonlocalMarkup"), 0);
+  assert.equal(fboPart("ozonFboNonlocalMarkup"), undefined);
   assert.equal(fboPart("ozonFboStorage"), 0);
   assert.equal(fboPart("ozonPickupPoint"), 20.49);
   assert.equal(fbsPart("ozonFbsAcceptance"), 16.39);
@@ -1410,11 +1439,15 @@ test("Ozon marketplace logistics use the current FBO/FBS tariff matrix", () => {
   assert.equal(fbsPart("ozonFboStorage"), undefined);
   assert.equal(fbsPart("ozonPickupPoint"), 20.49);
   assert.equal(nonlocalFboPart("ozonFboLogisticsTariff"), 313.11);
-  assert.equal(nonlocalFboPart("ozonFboNonlocalMarkup"), 265.57);
+  assert.equal(nonlocalFboPart("ozonFboNonlocalMarkup"), undefined);
   assert.equal(nonlocalFbsPart("ozonFbsLogistics"), 313.11);
   assert.equal(nonlocalFbsPart("ozonFbsNonlocalMarkup"), undefined);
   assert.deepEqual(nonlocalFbo.warnings, []);
   assert.deepEqual(nonlocalFbs.warnings, []);
+  assert.equal(localKazan.breakdown.find((item) => item.key === "commission")?.label, "Комиссия маркетплейса 51% (54%-3%)");
+  assert.equal(localKazan.breakdown.find((item) => item.key === "commission")?.amountWithVatRub, 2065.5);
+  assert.match(localKazan.breakdown.find((item) => item.key === "commission")?.calculationNote ?? "", /скидка 3% за локальную продажу/);
+  assert.equal(localUnlisted.breakdown.find((item) => item.key === "commission")?.label, "Комиссия маркетплейса 54%");
   assert.equal(dbsKeys.includes("ozonFboLogisticsTariff"), false);
   assert.equal(dbsKeys.includes("ozonFbsLogistics"), false);
   assert.equal(dbsKeys.includes("ozonFboStorage"), false);
@@ -1476,8 +1509,7 @@ test("Ozon marketplace tariffs are treated as VAT-inclusive source amounts", () 
   assert.equal(fboPart("commission")?.amountRub, 6418.03);
   assert.equal(fboPart("ozonFboLogisticsTariff")?.amountWithVatRub, 857);
   assert.equal(fboPart("ozonFboLogisticsTariff")?.amountRub, 702.46);
-  assert.equal(fboPart("ozonFboNonlocalMarkup")?.amountWithVatRub, 1160);
-  assert.equal(fboPart("ozonFboNonlocalMarkup")?.amountRub, 950.82);
+  assert.equal(fboPart("ozonFboNonlocalMarkup"), undefined);
   assert.equal(fboPart("ozonFboStorage")?.amountWithVatRub, 363.83);
   assert.equal(fboPart("ozonFboStorage")?.amountRub, 298.22);
   assert.equal(fboPart("ozonPickupPoint")?.amountWithVatRub, 25);
@@ -1518,7 +1550,7 @@ test("display breakdown follows client article order without changing totals", (
     [result.wildberries.fbo, ["Первая миля", "Комиссия маркетплейса 35.5%", "Приёмка WB", "Хранение WB", "Логистика WB до покупателя"]],
     [result.wildberries.fbs, ["Первая миля", "Комиссия маркетплейса 40%", "Операции PIM.Seller", "Средняя миля", "Логистика WB FBS"]],
     [result.wildberries.dbs, ["Первая миля", "Комиссия маркетплейса 45%", "Операции PIM.Seller", "Последняя миля"]],
-    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 54%", "Наценка за нелокальную продажу", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
+    [result.ozon.fbo, ["Первая миля", "Комиссия маркетплейса 54%", "Хранение Ozon", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.fbs, ["Первая миля", "Комиссия маркетплейса 54%", "Операции PIM.Seller", "Средняя миля", "Приёмка отправления", "Логистика Ozon", "Доставка до ПВЗ"]],
     [result.ozon.dbs, ["Первая миля", "Комиссия маркетплейса 54%", "Операции PIM.Seller", "Последняя миля"]]
   ]);

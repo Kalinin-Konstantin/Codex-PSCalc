@@ -269,7 +269,6 @@ function buildInputsSheet(
     ["Склад WB", settings.wbWarehouse],
     ["Тип поставки WB", labelForWbSupplyType(settings.wbSupplyType)],
     ["Индекс локализации WB", settings.localizationIndex],
-    ["Индекс распределения продаж WB", settings.salesDistributionIndex],
     ["Кластер отправки Ozon", settings.ozonOriginCluster],
     ["Кластер доставки Ozon", settings.ozonDeliveryCluster],
     ["Дней хранения", settings.storageDays],

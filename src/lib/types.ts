@@ -39,7 +39,6 @@ export type CalculatorSettings = {
   wbWarehouse: string;
   wbSupplyType: WbSupplyType;
   localizationIndex: number;
-  salesDistributionIndex: number;
   ozonOriginCluster: string;
   ozonDeliveryCluster: string;
   storageDays: number;
@@ -216,7 +215,6 @@ export type LogisticsAssumptions = {
     boxTypeIds?: Record<string, number>;
     defaultSupplyType?: WbSupplyType;
     defaultLocalizationIndex?: number;
-    defaultSalesDistributionIndex?: number;
     smallVolumeBands?: Array<{ minLiter: number; maxLiter: number; rub: number }>;
     calculationRules?: Record<string, string>;
     firstLiterRub: number;
@@ -272,7 +270,8 @@ export type LogisticsAssumptions = {
     fbsAcceptanceRub: number;
     tariffSource?: string;
     tariffEffectiveFrom?: string;
-    nonlocalMarkupSource?: string;
+    localSaleDiscountSource?: string;
+    localSaleDiscountEffectiveFrom?: string;
     storageFreeDaysSource?: string;
     storageRates?: {
       standardRubPerLiterDay: number;
@@ -298,7 +297,7 @@ export type LogisticsAssumptions = {
       priceTo300Rub: number;
       priceOver300Rub: number;
     }>;
-    nonlocalMarkups: Array<{ deliveryCluster: string; percent: number }>;
+    localSaleDiscounts: Array<{ deliveryCluster: string; percent: number }>;
     storageFreeDays?: Array<{
       category: string;
       productType: string;

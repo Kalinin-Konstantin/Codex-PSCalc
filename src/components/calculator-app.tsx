@@ -357,14 +357,6 @@ export function CalculatorApp({ tariffs, lookups, workspace }: CalculatorAppProp
                 onChange={(value) => setSettings((current) => ({ ...current, localizationIndex: parseInputNumber(value) }))}
               />
             </label>
-            <label>
-              <span>Индекс распределения продаж</span>
-              <NumberInput
-                step="0.001"
-                value={settings.salesDistributionIndex}
-                onChange={(value) => setSettings((current) => ({ ...current, salesDistributionIndex: parseInputNumber(value) }))}
-              />
-            </label>
           </div>
         </div>
 
