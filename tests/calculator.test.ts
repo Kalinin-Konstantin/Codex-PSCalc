@@ -1117,14 +1117,24 @@ test("fast handover discounts apply only to FBS with marketplace-specific rules"
   assert.equal(part(withDiscount.wildberries.fbo, "commission")?.label, "Комиссия маркетплейса 35.5%");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.label, "Комиссия маркетплейса 38.5% (40%-1.5%)");
   assert.equal(part(withDiscount.wildberries.fbs, "commission")?.amountRub, 1278.07);
-  assert.equal(part(withDiscount.wildberries.fbs, "commission")?.calculationNote, "Цена товара х ставка комиссии 38.5%.");
+  assert.equal(
+    part(withDiscount.wildberries.fbs, "commission")?.calculationNote,
+    "Цена товара х ставка комиссии 38.5%. Применена скидка 1.5% за быструю сдачу отправления."
+  );
   assert.equal(part(withDiscount.wildberries.dbs, "commission")?.label, "Комиссия маркетплейса 45%");
   assert.equal(part(withDiscount.wildberries.dbs, "fastHandoverDiscount"), undefined);
 
   assert.equal(part(withDiscount.ozon.fbo, "commission")?.label, "Комиссия маркетплейса 54%");
   assert.equal(part(withDiscount.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 51% (54%-3%)");
   assert.equal(part(withDiscount.ozon.fbs, "commission")?.amountRub, 1693.03);
-  assert.equal(part(withDiscount.ozon.fbs, "commission")?.calculationNote, "Цена товара х ставка комиссии 51%. Данные комиссии вступят в силу с 28.08.2026.");
+  assert.equal(
+    part(withDiscount.ozon.fbs, "commission")?.calculationNote,
+    "Цена товара х ставка комиссии 51%. Применена скидка 3% за быструю сдачу отправления. Данные комиссии вступят в силу с 28.08.2026."
+  );
+  assert.equal(
+    part(ozonTwoPercent.ozon.fbs, "commission")?.calculationNote,
+    "Цена товара х ставка комиссии 52%. Применена скидка 2% за быструю сдачу отправления. Данные комиссии вступят в силу с 28.08.2026."
+  );
   assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.label, "Комиссия маркетплейса 52% (54%-2%)");
   assert.equal(part(ozonTwoPercent.ozon.fbs, "commission")?.amountRub, 1726.23);
   assert.equal(part(withDiscount.ozon.dbs, "commission")?.label, "Комиссия маркетплейса 54%");

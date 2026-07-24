@@ -2180,7 +2180,12 @@ function formatCommissionRate(commission) {
 }
 
 function commissionCalculationNote(commission) {
-  return `Цена товара х ставка комиссии ${formatRate(commission.rate)}.${futureCommissionTariffNote(commission)}`;
+  return `Цена товара х ставка комиссии ${formatRate(commission.rate)}.${commissionDiscountNote(commission)}${futureCommissionTariffNote(commission)}`;
+}
+
+function commissionDiscountNote(commission) {
+  if (!commission.discount) return "";
+  return ` Применена скидка ${formatRate(commission.discount.value)} за быструю сдачу отправления.`;
 }
 
 function futureCommissionTariffNote(commission) {
