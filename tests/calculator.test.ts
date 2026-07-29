@@ -1321,38 +1321,50 @@ test("Wildberries FBO monopallet storage uses acceptance storage tariff", () => 
   assert.equal(fboPart("wbStorage"), 44.06);
 });
 
-test("Wildberries FBO box uses non-food Краснодар tariff row", () => {
-  const result = calculateAllSchemes(skus[0], { ...settings, wbWarehouse: "Краснодар", wbSupplyType: "box" }, tariffs);
+test("Wildberries FBO box uses official non-SGT warehouse tariff row", () => {
+  const result = calculateAllSchemes(skus[0], { ...settings, wbWarehouse: "Коледино", wbSupplyType: "box" }, tariffs);
   const fboPart = (key: string) => result.wildberries.fbo.breakdown.find((item) => item.key === key);
-  const warehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name === "Краснодар");
-  const foodWarehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name.includes(": Питание"));
+  const warehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name === "Коледино");
+  const sgtWarehouse = tariffs.logistics.wildberriesLogistics.warehouses.find((item) => item.name === "Коледино СГТ");
   const liters = calculateSkuMetrics(skus[0]).volumeLiters;
   const expectedDeliveryWithVat = money(
     (warehouse?.acceptance?.box?.deliveryBaseLiterRub ?? 0) +
       Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.deliveryAdditionalLiterRub ?? 0)
+  );
+  const expectedDelivery = money(
+    ((warehouse?.acceptance?.box?.deliveryBaseLiterRub ?? 0) +
+      Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.deliveryAdditionalLiterRub ?? 0)) /
+      1.22
   );
   const expectedStorageWithVat = money(
     ((warehouse?.acceptance?.box?.storageBaseLiterRub ?? 0) +
       Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.storageAdditionalLiterRub ?? 0)) *
       settings.storageDays
   );
+  const expectedStorage = money(
+    (((warehouse?.acceptance?.box?.storageBaseLiterRub ?? 0) +
+      Math.max(0, liters - 1) * (warehouse?.acceptance?.box?.storageAdditionalLiterRub ?? 0)) *
+      settings.storageDays) /
+      1.22
+  );
 
   assert.equal(warehouse?.acceptance?.box?.allowUnload, true);
   assert.ok((warehouse?.acceptance?.box?.coefficient ?? 1) <= 0);
-  assert.equal(warehouse?.acceptance?.box?.deliveryCoefPercent, 175);
-  assert.equal(warehouse?.acceptance?.box?.storageCoefPercent, 165);
-  assert.equal(foodWarehouse, undefined);
+  assert.equal(warehouse?.acceptance?.box?.deliveryCoefPercent, 205);
+  assert.equal(warehouse?.acceptance?.box?.storageCoefPercent, 200);
+  assert.equal(sgtWarehouse, undefined);
   assert.equal(fboPart("wbAcceptance")?.amountRub, 0);
   assert.equal(fboPart("wbLastMile")?.amountWithVatRub, expectedDeliveryWithVat);
-  assert.equal(fboPart("wbLastMile")?.amountRub, money(expectedDeliveryWithVat / 1.22));
+  assert.equal(fboPart("wbLastMile")?.amountRub, expectedDelivery);
   assert.equal(fboPart("wbStorage")?.amountWithVatRub, expectedStorageWithVat);
-  assert.equal(fboPart("wbStorage")?.amountRub, money(expectedStorageWithVat / 1.22));
+  assert.equal(fboPart("wbStorage")?.amountRub, expectedStorage);
   assert.match(fboPart("wbStorage")?.calculationNote ?? "", /базовая ставка 0,08 ₽\/л\/дн/);
-  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /коэффициент склада 165%/);
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /коэффициент склада 200%/);
   assert.match(fboPart("wbStorage")?.calculationNote ?? "", /Объём 41,944 л/);
-  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /\(0,13 ₽ \+ 40,944 доп\. л × 0,13 ₽\) × 30 дн\. = 163,58 ₽ с НДС/);
+  assert.match(fboPart("wbStorage")?.calculationNote ?? "", /\(0,16 ₽ \+ 40,944 доп\. л × 0,16 ₽\) × 30 дн\. = 201,33 ₽ с НДС/);
   assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /46 ₽ за 1-й л \+ 40,944 доп\. л × 14 ₽\/л/);
-  assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /коэффициент склада 175%/);
+  assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /Ставки после коэффициента: 94,3 ₽ за 1-й л и 28,7 ₽\/доп\. л/);
+  assert.match(fboPart("wbLastMile")?.calculationNote ?? "", /коэффициент склада 205%/);
   assert.match(fboPart("wbAcceptance")?.calculationNote ?? "", /Приёмка WB бесплатна/);
   assert.match(fboPart("wbAcceptance")?.calculationNote ?? "", /Итого: 0 ₽/);
   assert.doesNotMatch(fboPart("wbAcceptance")?.calculationNote ?? "", /allowUnload|коэффициент приёмки -1/);
